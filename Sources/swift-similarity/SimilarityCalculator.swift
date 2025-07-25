@@ -1,0 +1,117 @@
+import Foundation
+
+// MARK: - Similarity Calculator
+
+/// Calculates similarity scores between code structures using APTED results.
+public class SimilarityCalculator {
+    
+    /// Configuration for similarity calculation.
+    public struct Configuration {
+        /// Threshold for considering two trees similar (0.0-1.0).
+        public let similarityThreshold: Double
+        /// APTED operation costs to use.
+        public let aptedCosts: APTED.OperationCosts
+        
+        /// Creates similarity configuration with specified values.
+        /// - Parameters:
+        ///   - similarityThreshold: Similarity threshold (default: 0.8)
+        ///   - aptedCosts: APTED operation costs (default: unit costs)
+        public init(similarityThreshold: Double = 0.8, aptedCosts: APTED.OperationCosts = APTED.OperationCosts()) {
+            self.similarityThreshold = similarityThreshold
+            self.aptedCosts = aptedCosts
+        }
+    }
+    
+    /// Similarity calculation result.
+    public struct SimilarityResult {
+        /// Raw edit distance calculated by APTED.
+        public let editDistance: Double
+        /// Normalized similarity score (0.0-1.0, where 1.0 is identical).
+        public let similarityScore: Double
+        /// Whether the trees are considered similar based on threshold.
+        public let areSimilar: Bool
+        /// Additional metadata about the comparison.
+        public let metadata: [String: Any]
+        
+        /// Creates a similarity result.
+        /// - Parameters:
+        ///   - editDistance: Raw edit distance
+        ///   - similarityScore: Normalized similarity score
+        ///   - areSimilar: Whether trees are similar
+        ///   - metadata: Additional metadata
+        public init(editDistance: Double, similarityScore: Double, areSimilar: Bool, metadata: [String: Any] = [:]) {
+            self.editDistance = editDistance
+            self.similarityScore = similarityScore
+            self.areSimilar = areSimilar
+            self.metadata = metadata
+        }
+    }
+    
+    /// Configuration for this calculator.
+    public let configuration: Configuration
+    
+    /// APTED algorithm instance.
+    private let apted: APTED
+    
+    /// Creates a similarity calculator with specified configuration.
+    /// - Parameter configuration: The configuration to use
+    public init(configuration: Configuration = Configuration()) {
+        self.configuration = configuration
+        self.apted = APTED(costs: configuration.aptedCosts)
+    }
+    
+    /// Calculates similarity between two trees.
+    /// - Parameters:
+    ///   - tree1: First tree
+    ///   - tree2: Second tree
+    /// - Returns: Similarity calculation result
+    public func calculateSimilarity(between tree1: TreeNode, and tree2: TreeNode) -> SimilarityResult {
+        // Calculate raw edit distance
+        let editDistance = apted.editDistance(between: tree1, and: tree2)
+        
+        // Normalize to similarity score (0.0-1.0)
+        let maxPossibleDistance = Double(max(countNodes(tree1), countNodes(tree2)))
+        let similarityScore = maxPossibleDistance > 0 ? 1.0 - (editDistance / maxPossibleDistance) : 1.0
+        
+        // Determine if trees are similar
+        let areSimilar = similarityScore >= configuration.similarityThreshold
+        
+        // Collect metadata
+        let metadata: [String: Any] = [
+            "tree1_node_count": countNodes(tree1),
+            "tree2_node_count": countNodes(tree2),
+            "max_possible_distance": maxPossibleDistance,
+            "threshold": configuration.similarityThreshold
+        ]
+        
+        return SimilarityResult(
+            editDistance: editDistance,
+            similarityScore: similarityScore,
+            areSimilar: areSimilar,
+            metadata: metadata
+        )
+    }
+    
+    /// Counts the total number of nodes in a tree.
+    /// - Parameter tree: The tree to count nodes in
+    /// - Returns: Total number of nodes
+    private func countNodes(_ tree: TreeNode) -> Int {
+        var count = 1 // Count the current node
+        for child in tree.children {
+            count += countNodes(child)
+        }
+        return count
+    }
+    
+    /// Calculates similarity between two Swift source files.
+    /// - Parameters:
+    ///   - file1Path: Path to first Swift file
+    ///   - file2Path: Path to second Swift file
+    /// - Returns: Similarity calculation result
+    /// - Throws: File reading or parsing errors
+    public func calculateSimilarity(betweenFiles file1Path: String, and file2Path: String) throws -> SimilarityResult {
+        let tree1 = try FileReader.readSwiftFile(at: file1Path)
+        let tree2 = try FileReader.readSwiftFile(at: file2Path)
+        return calculateSimilarity(between: tree1, and: tree2)
+    }
+} 
