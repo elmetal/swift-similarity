@@ -8,6 +8,7 @@ struct OutputFormatter {
     let elementType: String
     let threshold: Double
     let advanced: Bool
+    let printCodePreviews: Bool
     
     /// Outputs results in text format
     func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) {
@@ -51,8 +52,8 @@ struct OutputFormatter {
                         startLine: pair.1.startLine,
                         endLine: pair.1.endLine
                     ),
-                    codePreview1: pair.0.codePreview,
-                    codePreview2: pair.1.codePreview
+                    codePreview1: printCodePreviews ? pair.0.codePreview : "",
+                    codePreview2: printCodePreviews ? pair.1.codePreview : ""
                 )
             }
         )
@@ -88,10 +89,14 @@ struct OutputFormatter {
                 output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(elementType.capitalized): \(pair.0.name)\n"
                 output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
                 output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
-                output += "   Code Preview 1:\n"
-                output += "   \(pair.0.codePreview.replacingOccurrences(of: "\n", with: "\n   "))\n"
-                output += "   Code Preview 2:\n"
-                output += "   \(pair.1.codePreview.replacingOccurrences(of: "\n", with: "\n   "))\n"
+                
+                if printCodePreviews {
+                    output += "   Code Preview 1:\n"
+                    output += "   \(pair.0.codePreview.replacingOccurrences(of: "\n", with: "\n   "))\n"
+                    output += "   Code Preview 2:\n"
+                    output += "   \(pair.1.codePreview.replacingOccurrences(of: "\n", with: "\n   "))\n"
+                }
+                
                 output += "\n"
             }
         }

@@ -28,6 +28,9 @@ struct ScanCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Output file path")
     var output: String?
     
+    @Flag(name: [.customShort("p"), .customLong("print")], help: "Print code previews for similar elements")
+    var showCode: Bool = false
+    
     func run() throws {
         // Validate element type
         guard let targetElementType = CodeElementType(rawValue: elementType) else {
@@ -95,7 +98,8 @@ struct ScanCommand: ParsableCommand {
             let formatter = OutputFormatter(
                 elementType: elementType,
                 threshold: threshold,
-                advanced: advanced
+                advanced: advanced,
+                printCodePreviews: showCode
             )
             
             if format == "json" {
