@@ -1,1 +1,4 @@
 # swift-similarity
+
+## License
+MIT
