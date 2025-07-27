@@ -173,7 +173,7 @@ struct ScanCommand: ParsableCommand {
             ),
             similarPairs: similarPairs.map { pair in
                 SimilarPair(
-                    similarity: pair.2,
+                    similarity: pair.2 * 100,
                     elementType: pair.0.elementType.rawValue,
                     elementName1: pair.0.name,
                     elementName2: pair.1.name,
@@ -220,7 +220,7 @@ struct ScanCommand: ParsableCommand {
             output += String(repeating: "=", count: 60) + "\n"
             
             for (index, pair) in similarPairs.enumerated() {
-                output += "\(index + 1). Similarity: \(String(format: "%.3f", pair.2)) - \(elementType.capitalized): \(pair.0.name)\n"
+                output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(elementType.capitalized): \(pair.0.name)\n"
                 output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
                 output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
                 output += "   Code Preview 1:\n"
