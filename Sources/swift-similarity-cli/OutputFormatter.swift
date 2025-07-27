@@ -1,0 +1,101 @@
+import Foundation
+import swift_similarity
+
+// MARK: - Output Formatter
+
+/// Handles output formatting for scan results
+struct OutputFormatter {
+    let elementType: String
+    let threshold: Double
+    let advanced: Bool
+    
+    /// Outputs results in text format
+    func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) {
+        let output = generateTextOutput(similarPairs: similarPairs)
+        
+        if let outputFile = outputFile {
+            do {
+                try output.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
+                print("Results written to: \(outputFile)")
+            } catch {
+                print("Failed to write to file: \(error.localizedDescription)")
+                print(output)
+            }
+        } else {
+            print(output)
+        }
+    }
+    
+    /// Outputs results in JSON format
+    func outputJSON(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) throws {
+        let result = ScanResult(
+            summary: ScanResult.Summary(
+                totalPairs: similarPairs.count,
+                elementType: elementType,
+                threshold: threshold,
+                advancedMetrics: advanced
+            ),
+            similarPairs: similarPairs.map { pair in
+                SimilarPair(
+                    similarity: pair.2 * 100,
+                    elementType: pair.0.elementType.rawValue,
+                    elementName1: pair.0.name,
+                    elementName2: pair.1.name,
+                    location1: CodeElementLocation(
+                        file: pair.0.filePath,
+                        startLine: pair.0.startLine,
+                        endLine: pair.0.endLine
+                    ),
+                    location2: CodeElementLocation(
+                        file: pair.1.filePath,
+                        startLine: pair.1.startLine,
+                        endLine: pair.1.endLine
+                    ),
+                    codePreview1: pair.0.codePreview,
+                    codePreview2: pair.1.codePreview
+                )
+            }
+        )
+        
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        let jsonData = try encoder.encode(result)
+        let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
+        
+        if let outputFile = outputFile {
+            try jsonString.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
+            print("JSON results written to: \(outputFile)")
+        } else {
+            print(jsonString)
+        }
+    }
+    
+    /// Generates text output from similar pairs
+    private func generateTextOutput(similarPairs: [(CodeElement, CodeElement, Double)]) -> String {
+        var output = ""
+        output += "Similar \(elementType.capitalized) Elements Found: \(similarPairs.count)\n"
+        output += "Threshold: \(threshold)\n"
+        output += "Advanced Metrics: \(advanced)\n"
+        output += "\n"
+        
+        if similarPairs.isEmpty {
+            output += "No similar \(elementType) elements found.\n"
+        } else {
+            output += "Similar Pairs (sorted by similarity):\n"
+            output += String(repeating: "=", count: 60) + "\n"
+            
+            for (index, pair) in similarPairs.enumerated() {
+                output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(elementType.capitalized): \(pair.0.name)\n"
+                output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
+                output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
+                output += "   Code Preview 1:\n"
+                output += "   \(pair.0.codePreview.replacingOccurrences(of: "\n", with: "\n   "))\n"
+                output += "   Code Preview 2:\n"
+                output += "   \(pair.1.codePreview.replacingOccurrences(of: "\n", with: "\n   "))\n"
+                output += "\n"
+            }
+        }
+        
+        return output
+    }
+}
