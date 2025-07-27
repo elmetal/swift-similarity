@@ -16,7 +16,7 @@ public class ASTToTreeConverter {
     /// Converts any SyntaxProtocol node to TreeNode.
     /// - Parameter node: The syntax node to convert
     /// - Returns: The converted TreeNode
-    private static func convertSyntaxNode(_ node: some SyntaxProtocol) -> TreeNode {
+    public static func convertSyntaxNode(_ node: some SyntaxProtocol) -> TreeNode {
         let label = String(describing: type(of: node))
         let children = node.children(viewMode: .sourceAccurate).map { convertSyntaxNode($0) }
         return SimpleTreeNode(label: label, children: children)

@@ -156,22 +156,99 @@ Swiftのリファクタリング支援ツールとして、APTED（All-Pairs Tre
 
 ### Phase 5: CLIツールとレポート
 
-#### タスク
-1. **コマンドライン界面**
-   ```bash
-   swift-similarity compare file1.swift file2.swift
-   swift-similarity scan project/ --threshold=0.8
-   swift-similarity report --format=json --output=results.json
-   ```
+#### 改善されたCLI設計
+リファクタリング支援ツールとして、関数・struct・class単位での類似コード検出に最適化
 
-2. **レポート機能**
-   - JSON/テキスト形式での出力
-   - 類似コードペアの詳細表示
-   - 統計情報とサマリー
+**コマンド構成:**
+```bash
+# プロジェクト全体から類似コード要素を検出
+swift-similarity scan project/ --element-type=function --threshold=0.8
+swift-similarity scan project/ --element-type=struct --threshold=0.8
+swift-similarity scan project/ --element-type=class --threshold=0.8
+
+# 出力形式とオプション
+swift-similarity scan project/ --advanced --format=json --output=results.json
+```
+
+**出力例（テキスト形式）:**
+```
+Similar Functions Found: 5 pairs
+Threshold: 0.8
+Advanced Metrics: true
+
+Similar Pairs (sorted by similarity):
+============================================================
+1. Similarity: 0.92 - Function: calculateDistance
+   File 1: Sources/Utils/MathUtils.swift:15-25
+   File 2: Sources/Geometry/Distance.swift:8-18
+   Code Preview:
+   func calculateDistance(from p1: Point, to p2: Point) -> Double {
+       let dx = p1.x - p2.x
+       let dy = p1.y - p2.y
+       return sqrt(dx*dx + dy*dy)
+   }
+
+2. Similarity: 0.87 - Struct: UserData  
+   File 1: Sources/Models/User.swift:10-25
+   File 2: Sources/API/UserResponse.swift:5-20
+   Code Preview:
+   struct UserData {
+       let id: String
+       let name: String
+       let email: String
+   }
+
+3. Similarity: 0.84 - Function: validateInput
+   File 1: Sources/Validation/FormValidator.swift:30-45
+   File 2: Sources/Auth/LoginValidator.swift:12-27
+```
+
+**JSON出力例:**
+```json
+{
+  "summary": {
+    "totalPairs": 5,
+    "elementType": "function",
+    "threshold": 0.8,
+    "advancedMetrics": true
+  },
+  "similarPairs": [
+    {
+      "similarity": 0.92,
+      "elementType": "function",
+      "elementName": "calculateDistance",
+      "location1": {
+        "file": "Sources/Utils/MathUtils.swift",
+        "startLine": 15,
+        "endLine": 25
+      },
+      "location2": {
+        "file": "Sources/Geometry/Distance.swift", 
+        "startLine": 8,
+        "endLine": 18
+      },
+      "codePreview1": "func calculateDistance(from p1: Point, to p2: Point) -> Double { ... }",
+      "codePreview2": "func calculateDistance(p1: Point, p2: Point) -> Double { ... }"
+    }
+  ]
+}
+```
+
+#### 実装タスク
+1. **AST要素抽出器**
+   - 関数・struct・class・enum単位での解析
+   - コード位置情報（行番号）の取得
+   - 要素名とシグネチャの抽出
+
+2. **改善されたscanコマンド**
+   - `--element-type` オプション
+   - 要素単位での類似度計算
+   - コードプレビュー機能
 
 #### 成果物
-- 完全なCLIツール
-- 多様な出力フォーマット
+- 関数・struct・class単位の類似検出
+- 詳細な位置情報とプレビュー
+- リファクタリング支援に最適化されたレポート
 
 ## 4. 技術的課題と解決方針
 
