@@ -87,6 +87,8 @@ public class CodeElementExtractor {
         let visitor = CodeElementVisitor(
             filePath: filePath,
             sourceLines: sourceLines,
+            sourceContent: sourceContent,
+            sourceFile: sourceFile,
             configuration: configuration
         )
         
@@ -117,12 +119,16 @@ public class CodeElementExtractor {
 private class CodeElementVisitor: SyntaxVisitor {
     let filePath: String
     let sourceLines: [String]
+    let sourceContent: String
+    let sourceFile: SourceFileSyntax
     let configuration: CodeElementExtractor.Configuration
     var extractedElements: [CodeElement] = []
     
-    init(filePath: String, sourceLines: [String], configuration: CodeElementExtractor.Configuration) {
+    init(filePath: String, sourceLines: [String], sourceContent: String, sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
         self.filePath = filePath
         self.sourceLines = sourceLines
+        self.sourceContent = sourceContent
+        self.sourceFile = sourceFile
         self.configuration = configuration
         super.init(viewMode: .sourceAccurate)
     }
@@ -175,12 +181,11 @@ private class CodeElementVisitor: SyntaxVisitor {
         // Create signature (simplified - just the node description)
         let signature = node.description.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // For now, use simplified line numbering (1-based)
-        let startLine = 1
-        let endLine = 1
+        // Calculate actual line numbers
+        let (startLine, endLine) = calculateLineNumbers(for: node)
         
-        // Create code preview (simplified)
-        let codePreview = String(signature.prefix(200)) + (signature.count > 200 ? "..." : "")
+        // Create code preview from actual source lines
+        let codePreview = extractCodePreview(startLine: startLine, endLine: endLine)
         
         // Create tree node for similarity calculation
         let treeNode = ASTToTreeConverter.convertSyntaxNode(node)
@@ -209,5 +214,41 @@ private class CodeElementVisitor: SyntaxVisitor {
             return enumDecl.name.text
         }
         return nil
+    }
+    
+    // Calculate line numbers for a syntax node by manually counting newlines
+    private func calculateLineNumbers(for node: some SyntaxProtocol) -> (startLine: Int, endLine: Int) {
+        let startLine = lineNumber(for: node.positionAfterSkippingLeadingTrivia)
+        let endLine = lineNumber(for: node.endPosition)
+        
+        return (startLine: startLine, endLine: endLine)
+    }
+    
+    // Convert absolute position to line number (1-indexed) by counting newlines
+    private func lineNumber(for position: AbsolutePosition) -> Int {
+        let utf8Offset = position.utf8Offset
+        guard utf8Offset <= sourceContent.utf8.count else {
+            return sourceLines.count
+        }
+        
+        // Count newlines up to the position in the source content
+        let prefix = String(sourceContent.prefix(utf8Offset))
+        let newlineCount = prefix.filter { $0.isNewline }.count
+        return newlineCount + 1
+    }
+    
+    // Extract code preview from source lines
+    private func extractCodePreview(startLine: Int, endLine: Int) -> String {
+        let actualStartLine = max(1, startLine) - 1 // Convert to 0-indexed
+        let actualEndLine = min(sourceLines.count, endLine) - 1
+        let maxLines = min(configuration.maxPreviewLines, actualEndLine - actualStartLine + 1)
+        
+        guard actualStartLine < sourceLines.count else {
+            return ""
+        }
+        
+        let endIndex = min(actualStartLine + maxLines, sourceLines.count)
+        let previewLines = Array(sourceLines[actualStartLine..<endIndex])
+        return previewLines.joined(separator: "\n")
     }
 }
