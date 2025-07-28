@@ -192,12 +192,4 @@ The system includes comprehensive test coverage across all layers:
 - Unit tests for core algorithms (APTED, similarity calculation)
 - Integration tests for AST processing pipeline
 - Performance tests for optimization components
-- End-to-end CLI functionality tests
-
-## Extensibility Points
-
-1. **New Language Support**: Extend ASTToTreeConverter for other languages
-2. **Additional Similarity Metrics**: Implement new similarity calculation strategies
-3. **Alternative Algorithms**: Replace APTED with other tree comparison algorithms
-4. **Output Formats**: Add new result formatting options
-5. **Optimization Strategies**: Implement additional prefiltering techniques 
+- End-to-end CLI functionality tests 
