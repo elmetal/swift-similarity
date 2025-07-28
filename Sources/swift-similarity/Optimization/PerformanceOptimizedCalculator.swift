@@ -104,7 +104,7 @@ public struct PerformanceOptimizedConfiguration {
 }
 
 /// Progress information for similarity calculation
-public struct CalculationProgress {
+public struct CalculationProgress: Sendable {
     /// Total number of candidate pairs to process
     public let totalCandidates: Int
     /// Number of processed candidates

@@ -2,6 +2,24 @@ import Testing
 import Foundation
 @testable import swift_similarity
 
+// MARK: - Progress Tracking Actor for Tests
+
+actor ProgressTracker {
+    private var progressUpdates: [CalculationProgress] = []
+    
+    func addProgress(_ progress: CalculationProgress) {
+        progressUpdates.append(progress)
+    }
+    
+    func getUpdates() -> [CalculationProgress] {
+        return progressUpdates
+    }
+    
+    func count() -> Int {
+        return progressUpdates.count
+    }
+}
+
 // MARK: - Performance Optimized Calculator Tests
 
 struct PerformanceOptimizedCalculatorTests {
@@ -78,11 +96,11 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("Basic similarity calculation")
-    func testBasicSimilarityCalculation() throws {
+    func testBasicSimilarityCalculation() async throws {
         let calculator = PerformanceOptimizedCalculator()
         let elements = createTestElements()
         
-        let (similarPairs, statistics) = calculator.calculateSimilarity(
+        let (similarPairs, statistics) = await calculator.calculateSimilarity(
             elements: elements,
             threshold: 0.5
         )
@@ -105,14 +123,14 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("Similarity calculation with advanced metrics")
-    func testSimilarityCalculationWithAdvancedMetrics() throws {
+    func testSimilarityCalculationWithAdvancedMetrics() async throws {
         let config = PerformanceOptimizedConfiguration(
             advancedConfig: AdvancedSimilarityMetrics.Configuration()
         )
         let calculator = PerformanceOptimizedCalculator(configuration: config)
         let elements = createTestElements()
         
-        let (similarPairs, statistics) = calculator.calculateSimilarity(
+        let (similarPairs, statistics) = await calculator.calculateSimilarity(
             elements: elements,
             threshold: 0.6
         )
@@ -127,7 +145,7 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("Progress reporting functionality")
-    func testProgressReporting() throws {
+    func testProgressReporting() async throws {
         let config = PerformanceOptimizedConfiguration(
             enableProgressReporting: true,
             batchSize: 10
@@ -135,21 +153,26 @@ struct PerformanceOptimizedCalculatorTests {
         let calculator = PerformanceOptimizedCalculator(configuration: config)
         let elements = createTestElements()
         
-        var progressUpdates: [CalculationProgress] = []
+        let progressUpdates = ProgressTracker()
         
-        let (similarPairs, statistics) = calculator.calculateSimilarityWithProgress(
+        let (similarPairs, statistics) = await calculator.calculateSimilarityWithProgress(
             elements: elements,
             threshold: 0.5
         ) { progress in
-            progressUpdates.append(progress)
+            Task {
+                await progressUpdates.addProgress(progress)
+            }
         }
         
         #expect(similarPairs.count >= 0)
         #expect(statistics.similarPairsFound == similarPairs.count)
         
         // Verify progress updates were received
-        if !progressUpdates.isEmpty {
-            for progress in progressUpdates {
+        let progressCount = await progressUpdates.count()
+        let updates = await progressUpdates.getUpdates()
+        
+        if progressCount > 0 {
+            for progress in updates {
                 #expect(progress.totalCandidates >= 0)
                 #expect(progress.processedCandidates >= 0)
                 #expect(progress.processedCandidates <= progress.totalCandidates)
@@ -157,7 +180,7 @@ struct PerformanceOptimizedCalculatorTests {
             }
             
             // Last update should show completion or near completion
-            if let lastProgress = progressUpdates.last {
+            if let lastProgress = updates.last {
                 #expect(lastProgress.processedCandidates <= lastProgress.totalCandidates)
             }
         }
@@ -217,13 +240,13 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("Parallel processing with different batch sizes")
-    func testParallelProcessingWithDifferentBatchSizes() throws {
+    func testParallelProcessingWithDifferentBatchSizes() async throws {
         let elements = createLargerTestDataset()
         
         // Test with small batch size
         let smallBatchConfig = PerformanceOptimizedConfiguration(batchSize: 5)
         let smallBatchCalculator = PerformanceOptimizedCalculator(configuration: smallBatchConfig)
-        let (smallBatchPairs, smallBatchStats) = smallBatchCalculator.calculateSimilarity(
+        let (smallBatchPairs, smallBatchStats) = await smallBatchCalculator.calculateSimilarity(
             elements: elements,
             threshold: 0.7
         )
@@ -231,7 +254,7 @@ struct PerformanceOptimizedCalculatorTests {
         // Test with large batch size
         let largeBatchConfig = PerformanceOptimizedConfiguration(batchSize: 50)
         let largeBatchCalculator = PerformanceOptimizedCalculator(configuration: largeBatchConfig)
-        let (largeBatchPairs, largeBatchStats) = largeBatchCalculator.calculateSimilarity(
+        let (largeBatchPairs, largeBatchStats) = await largeBatchCalculator.calculateSimilarity(
             elements: elements,
             threshold: 0.7
         )
@@ -250,11 +273,11 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("Empty input handling")
-    func testEmptyInputHandling() throws {
+    func testEmptyInputHandling() async throws {
         let calculator = PerformanceOptimizedCalculator()
         let emptyElements: [CodeElement] = []
         
-        let (similarPairs, statistics) = calculator.calculateSimilarity(
+        let (similarPairs, statistics) = await calculator.calculateSimilarity(
             elements: emptyElements,
             threshold: 0.5
         )
@@ -267,11 +290,11 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("Single element handling")
-    func testSingleElementHandling() throws {
+    func testSingleElementHandling() async throws {
         let calculator = PerformanceOptimizedCalculator()
         let singleElement = [createTestElement(name: "single", nodeCount: 5)]
         
-        let (similarPairs, statistics) = calculator.calculateSimilarity(
+        let (similarPairs, statistics) = await calculator.calculateSimilarity(
             elements: singleElement,
             threshold: 0.5
         )
@@ -283,18 +306,18 @@ struct PerformanceOptimizedCalculatorTests {
     }
     
     @Test("High threshold filtering")
-    func testHighThresholdFiltering() throws {
+    func testHighThresholdFiltering() async throws {
         let calculator = PerformanceOptimizedCalculator()
         let elements = createTestElements()
         
         // Test with very high threshold
-        let (highThresholdPairs, highThresholdStats) = calculator.calculateSimilarity(
+        let (highThresholdPairs, _) = await calculator.calculateSimilarity(
             elements: elements,
             threshold: 0.95
         )
         
         // Test with low threshold
-        let (lowThresholdPairs, lowThresholdStats) = calculator.calculateSimilarity(
+        let (lowThresholdPairs, _) = await calculator.calculateSimilarity(
             elements: elements,
             threshold: 0.3
         )
