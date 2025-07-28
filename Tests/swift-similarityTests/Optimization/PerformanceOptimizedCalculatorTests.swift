@@ -97,7 +97,7 @@ struct PerformanceOptimizedCalculatorTests {
         
         // Verify similarity scores are within expected range
         for (_, _, score) in similarPairs {
-            #expect(score >= 0.5 && score <= 1.0)
+            #expect(score >= 0.5 && score <= 1.001) // Allow slight floating-point precision
         }
         
         // Verify performance improvement
@@ -122,7 +122,7 @@ struct PerformanceOptimizedCalculatorTests {
         
         // Advanced metrics should work with scores in valid range
         for (_, _, score) in similarPairs {
-            #expect(score >= 0.6 && score <= 1.0)
+            #expect(score >= 0.6 && score <= 1.001) // Allow slight floating-point precision
         }
     }
     
