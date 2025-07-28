@@ -28,6 +28,11 @@ public class ASTToTreeConverter {
     private static func createSemanticLabel(for node: some SyntaxProtocol) -> String {
         let typeName = String(describing: type(of: node))
         
+        // FIXME: Handle "Syntax" nodes using SyntaxKind for better type resolution
+        if typeName == "Syntax" {
+            return createLabelFromSyntaxKind(node)
+        }
+        
         // Add semantic information based on node type
         switch node {
         case let funcDecl as FunctionDeclSyntax:
@@ -240,6 +245,97 @@ public class ASTToTreeConverter {
             
             // Avoid empty labels
             return cleanTypeName.isEmpty ? "Unknown" : cleanTypeName
+        }
+    }
+    
+    /// Creates a label from SyntaxKind for nodes that lose concrete type information
+    /// - Parameter node: The syntax node with generic "Syntax" type
+    /// - Returns: A descriptive label based on SyntaxKind
+    private static func createLabelFromSyntaxKind(_ node: some SyntaxProtocol) -> String {
+        let kind = node.kind
+        
+        switch kind {
+        // Statements  
+        case .expressionStmt: return "ExpressionStmt"
+        case .returnStmt: return "ReturnStmt"
+        case .continueStmt: return "ContinueStmt"
+        case .breakStmt: return "BreakStmt"
+        case .throwStmt: return "ThrowStmt"
+        case .deferStmt: return "DeferStmt"
+        case .ifExpr: return "IfExpr"
+        case .guardStmt: return "GuardStmt"
+        case .whileStmt: return "WhileStmt"
+        case .forStmt: return "ForStmt"
+        case .switchExpr: return "SwitchExpr"
+        case .doStmt: return "DoStmt"
+        
+        // Expressions
+        case .binaryOperatorExpr: return "BinaryOp"
+        case .prefixOperatorExpr: return "PrefixOp" 
+        case .postfixOperatorExpr: return "PostfixOp"
+        case .memberAccessExpr: return "MemberAccess"
+        case .subscriptCallExpr: return "SubscriptCall"
+        case .functionCallExpr: return "FunctionCall"
+        case .declReferenceExpr: return "DeclRef"
+        case .stringLiteralExpr: return "StringLiteral"
+        case .integerLiteralExpr: return "IntLiteral"
+        case .floatLiteralExpr: return "FloatLiteral"
+        case .booleanLiteralExpr: return "BoolLiteral"
+        case .nilLiteralExpr: return "NilLiteral"
+        case .arrayExpr: return "ArrayExpr"
+        case .dictionaryExpr: return "DictExpr"
+        case .tupleExpr: return "TupleExpr"
+        case .closureExpr: return "ClosureExpr"
+        case .assignmentExpr: return "Assignment"
+        case .sequenceExpr: return "SequenceExpr"
+        case .ternaryExpr: return "TernaryExpr"
+        
+        // Declarations
+        case .functionDecl: return "FunctionDecl"
+        case .variableDecl: return "VariableDecl"
+        case .structDecl: return "StructDecl"
+        case .classDecl: return "ClassDecl"
+        case .enumDecl: return "EnumDecl"
+        case .protocolDecl: return "ProtocolDecl"
+        case .initializerDecl: return "InitDecl"
+        case .deinitializerDecl: return "DeinitDecl"
+        case .subscriptDecl: return "SubscriptDecl"
+        case .operatorDecl: return "OperatorDecl"
+        case .typeAliasDecl: return "TypeAliasDecl"
+        case .associatedTypeDecl: return "AssociatedTypeDecl"
+        
+        // Types
+        case .arrayType: return "ArrayType"
+        case .dictionaryType: return "DictType"
+        case .optionalType: return "OptionalType"
+        case .implicitlyUnwrappedOptionalType: return "ImplicitUnwrappedOptional"
+        case .tupleType: return "TupleType"
+        case .functionType: return "FunctionType"
+        case .identifierType: return "IdentifierType"
+        case .classRestrictionType: return "ClassRestrictionType"
+        
+        // Patterns
+        case .identifierPattern: return "IdentifierPattern"
+        case .wildcardPattern: return "WildcardPattern"
+        case .tuplePattern: return "TuplePattern"
+        case .expressionPattern: return "ExpressionPattern"
+        
+        // Basic elements
+        case .token: return "Token"
+        case .codeBlockItem: return "CodeBlockItem"
+        case .codeBlock: return "CodeBlock"
+        case .functionParameterClause: return "ParameterClause"
+        case .genericParameterClause: return "GenericParams"
+        case .genericArgumentClause: return "GenericArgs"
+        case .whereClause: return "WhereClause"
+        case .conditionElement: return "ConditionElement"
+        case .availabilityCondition: return "AvailabilityCondition"
+        case .matchingPatternCondition: return "MatchingPatternCondition"
+        case .optionalBindingCondition: return "OptionalBindingCondition"
+        
+        default:
+            // For unhandled kinds, return the kind name
+            return "Syntax(\(kind))"
         }
     }
 }
