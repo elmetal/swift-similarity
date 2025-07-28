@@ -121,7 +121,7 @@ struct ScanCommand: AsyncParsableCommand {
     // MARK: - Helper Methods
     
     /// Parses the optimization level from command line argument
-    private func parseOptimizationLevel(_ optimization: String) -> PerformanceOptimizedConfiguration.PerformanceLevel {
+    private func parseOptimizationLevel(_ optimization: String) -> VectorizedPrefilteringEngine.OptimizationLevel {
         switch optimization.lowercased() {
         case "conservative":
             return .conservative
@@ -130,45 +130,28 @@ struct ScanCommand: AsyncParsableCommand {
         case "aggressive":
             return .aggressive
         case "auto":
-            return .balanced
+            return .auto
         default:
-            print("Warning: Unknown optimization level '\(optimization)', using 'balanced'")
-            return .balanced
+            print("Warning: Unknown optimization level '\(optimization)', using 'auto'")
+            return .auto
         }
     }
     
     /// Calculates similarity with performance optimization
     private func calculateWithOptimization(
         elements: [CodeElement],
-        optimizationLevel: PerformanceOptimizedConfiguration.PerformanceLevel
+        optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
-        let config = PerformanceOptimizedConfiguration.optimized(
-            elementCount: elements.count,
-            useAdvancedMetrics: advanced,
-            targetPerformance: optimizationLevel
-        )
+        let startTime = CFAbsoluteTimeGetCurrent()
         
-        // Override thread count if specified
-        let finalConfig = PerformanceOptimizedConfiguration(
-            prefilteringConfig: config.prefilteringConfig,
-            similarityConfig: config.similarityConfig,
-            advancedConfig: config.advancedConfig,
-            concurrentThreads: threads > 0 ? threads : config.concurrentThreads,
-            enableProgressReporting: progress || elements.count > 1000,
-            batchSize: config.batchSize
-        )
-        
-        let calculator = PerformanceOptimizedCalculator(configuration: finalConfig)
-        
+        // Create vectorized prefiltering engine configuration
+        let progressCallback: (@Sendable (VectorizedPrefilteringEngine.VectorizedProgress) -> Void)?
         if progress {
-            return await calculator.calculateSimilarityWithProgress(
-                elements: elements,
-                threshold: threshold
-            ) { progressInfo in
-                let percentage = Int(progressInfo.progressPercentage * 100)
-                let processed = progressInfo.processedCandidates
-                let total = progressInfo.totalCandidates
+            progressCallback = { progressInfo in
+                let percentage = Int(progressInfo.completionPercentage)
+                let processed = progressInfo.blocksProcessed
+                let total = progressInfo.totalBlocks
                 
                 print("\rProgress: \(percentage)% (\(processed)/\(total))", terminator: "")
                 if let remaining = progressInfo.estimatedTimeRemaining {
@@ -176,13 +159,52 @@ struct ScanCommand: AsyncParsableCommand {
                 }
                 fflush(stdout)
                 
-                if progressInfo.processedCandidates == progressInfo.totalCandidates {
+                if progressInfo.blocksProcessed == progressInfo.totalBlocks {
                     print("") // New line when complete
                 }
             }
         } else {
-            return await calculator.calculateSimilarity(elements: elements, threshold: threshold)
+            progressCallback = nil
         }
+        
+        let vectorizedConfig = VectorizedPrefilteringEngine.Configuration(
+            optimizationLevel: optimizationLevel,
+            blockSize: 0, // Auto-detect
+            maxConcurrency: threads > 0 ? threads : 0, // Auto-detect if not specified
+            hashMatrixCacheSize: 10000,
+            enableSIMD: true,
+            progressCallback: progressCallback
+        )
+        
+        // Use vectorized prefiltering engine for maximum performance
+        let vectorizedEngine = VectorizedPrefilteringEngine(configuration: vectorizedConfig)
+        let candidates = try await vectorizedEngine.findCandidates(elements: elements, threshold: threshold)
+        
+        let endTime = CFAbsoluteTimeGetCurrent()
+        let totalTime = endTime - startTime
+        
+        // Create performance statistics for compatibility
+        let totalPairs = elements.count * (elements.count - 1) / 2
+        let candidateCount = candidates.count
+        
+        let prefilteringStats = PrefilteringStatistics(
+            totalPossiblePairs: totalPairs,
+            candidatePairs: candidateCount,
+            prefilteringTimeSeconds: totalTime,
+            bloomFilterStats: nil
+        )
+        
+        let performanceStats = PerformanceStatistics(
+            prefilteringStats: prefilteringStats,
+            totalCalculationTime: totalTime,
+            parallelProcessingTime: totalTime,
+            threadsUsed: vectorizedConfig.maxConcurrency > 0 ? vectorizedConfig.maxConcurrency : ProcessInfo.processInfo.processorCount,
+            peakMemoryUsage: nil,
+            similarPairsFound: candidates.count,
+            processingRate: Double(candidates.count) / totalTime
+        )
+        
+        return (candidates, performanceStats)
     }
     
 
@@ -203,22 +225,6 @@ struct ScanCommand: AsyncParsableCommand {
         print("Reduction ratio: \(String(format: "%.1f", prefiltering.reductionRatio * 100))%")
         print("Prefiltering time: \(String(format: "%.3f", prefiltering.prefilteringTimeSeconds))s")
         print("Performance improvement: \(String(format: "%.1f", stats.performanceImprovement))x")
-        
-        if let bloomStats = prefiltering.bloomFilterStats {
-            print("\n--- Bloom Filter Stats ---")
-            if let size = bloomStats["size"] as? Int {
-                print("Filter size: \(size) bits")
-            }
-            if let hashFunctions = bloomStats["hash_functions"] as? Int {
-                print("Hash functions: \(hashFunctions)")
-            }
-            if let loadFactor = bloomStats["load_factor"] as? Double {
-                print("Load factor: \(String(format: "%.3f", loadFactor))")
-            }
-            if let falsePositiveRate = bloomStats["estimated_false_positive_rate"] as? Double {
-                print("Estimated false positive rate: \(String(format: "%.3f", falsePositiveRate * 100))%")
-            }
-        }
         print("==============================\n")
     }
 }
