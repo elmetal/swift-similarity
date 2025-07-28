@@ -49,11 +49,63 @@
 ### 🔄 Phase 6: Performance Testing and Benchmarking
 - [ ] Create performance benchmarking test suite
 - [ ] Test with various dataset sizes (100, 1000, 5000+ elements)
-- [ ] Measure and compare execution times
-- [ ] Document performance improvements
-- [ ] Fine-tune optimization parameters
-- [ ] Create final performance report
-- [ ] Commit: "Add performance benchmarking for optimization Phase 6"
+- [ ] Measure and compare execution times between standard and optimized calculation
+- [ ] Create benchmark reports with performance metrics
+- [ ] Validate accuracy vs speed trade-offs for different optimization levels
+
+## SwiftSyntax Node Coverage Enhancement
+
+**Goal**: Improve AST representation accuracy to reduce false-positive similarity detection
+
+**Current Problem**: 
+- ✅ 20+ node types supported with semantic labels
+- ⚠️ Issue: Basic similarity still 99.2% for different functions (target: 80-90%)
+- ⚠️ Many empty labels causing insufficient differentiation
+- ⚠️ Duplicate MemberAccessExprSyntax definitions in ASTToTreeConverter
+
+### 🔥 Priority 1: Basic Declaration Types (High Priority)
+- [ ] Add StructDeclSyntax with member count and inheritance info
+- [ ] Add ClassDeclSyntax with inheritance and modifier detection
+- [ ] Add EnumDeclSyntax with case count and associated values
+- [ ] Add ProtocolDeclSyntax with requirement count
+- [ ] Add InitializerDeclSyntax with parameter signature
+- [ ] Add PropertyDeclSyntax with getter/setter info
+- [ ] Fix duplicate MemberAccessExprSyntax definitions in createSemanticLabel
+- [ ] Add comprehensive control flow: IfStmtSyntax, WhileStmtSyntax, GuardStmtSyntax, SwitchStmtSyntax
+- [ ] Test similarity detection improvement (target: reduce false positives by 50%)
+
+### ⚡ Priority 2: Expression and Literal Types (Medium Priority)  
+- [ ] Add binary/unary operators with operator type detection
+- [ ] Add literal expressions (String, Integer, Boolean, Nil) with value info
+- [ ] Add collection expressions (Array, Dictionary) with element count
+- [ ] Add ClosureExprSyntax with parameter and capture analysis
+- [ ] Add type expressions (Array, Dictionary, Optional, Tuple types)
+- [ ] Implement operator precedence and associativity info
+- [ ] Test with complex expression similarity scenarios
+
+### 🚀 Priority 3: Advanced Language Features (Low Priority)
+- [ ] Add async/await support (TryExprSyntax, AwaitExprSyntax)
+- [ ] Add error handling (DoStmtSyntax, ThrowStmtSyntax, CatchClauseSyntax)
+- [ ] Add pattern matching (TuplePattern, WildcardPattern, OptionalPattern)
+- [ ] Add generics support (GenericArgument, WhereClause)
+- [ ] Add access control and modifiers
+- [ ] Add comprehensive attribute and annotation support
+
+**Success Criteria**:
+- Basic similarity for different functions: < 90%
+- Advanced similarity overall: < 85% 
+- Maintain performance within 10% of current speed
+- Zero false 100% similarity cases
+- Comprehensive test coverage for all new node types
+
+**Implementation Strategy**:
+- Incremental implementation with immediate testing after each priority group
+- Benchmark similarity detection accuracy after each major addition
+- Maintain backward compatibility with existing functionality
+- Use semantic information (names, counts, types) rather than just structure
+- Focus on eliminating empty labels and improving node differentiation
+
+---
 
 ## Implementation Notes
 
