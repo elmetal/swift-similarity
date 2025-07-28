@@ -13,7 +13,7 @@ struct ScanCommand: AsyncParsableCommand {
     @Argument(help: "Directory to scan for Swift files")
     var directory: String
     
-    @Option(name: .shortAndLong, help: "Type of code element to search (function, struct, class, enum)")
+    @Option(name: .shortAndLong, help: "Type of code element to search (function, struct, class, enum, all)")
     var elementType: String = "function"
     
     @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0)")
@@ -46,10 +46,16 @@ struct ScanCommand: AsyncParsableCommand {
     var stats: Bool = false
     
     mutating func run() async throws {
-        // Validate element type
-        guard let targetElementType = CodeElementType(rawValue: elementType) else {
-            print("Error: Invalid element type '\(elementType)'. Valid types: function, struct, class, enum")
-            throw ExitCode.failure
+        // Determine target element types
+        let targetElementTypes: Set<CodeElementType>
+        if elementType.lowercased() == "all" {
+            targetElementTypes = Set(CodeElementType.allCases)
+        } else {
+            guard let singleElementType = CodeElementType(rawValue: elementType) else {
+                print("Error: Invalid element type '\(elementType)'. Valid types: function, struct, class, enum, all")
+                throw ExitCode.failure
+            }
+            targetElementTypes = [singleElementType]
         }
         
         // Parse optimization level
@@ -65,16 +71,17 @@ struct ScanCommand: AsyncParsableCommand {
         do {
             // Extract code elements from directory
             let extractorConfig = CodeElementExtractor.Configuration(
-                elementTypes: [targetElementType],
+                elementTypes: targetElementTypes,
                 maxPreviewLines: 5
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
             let elements = try extractor.extractElements(fromDirectory: directory)
             
-            print("Found \(elements.count) \(elementType) elements")
+            let elementDescription = elementType.lowercased() == "all" ? "elements (all types)" : "\(elementType) elements"
+            print("Found \(elements.count) \(elementDescription)")
             
             if elements.count < 2 {
-                print("Need at least 2 \(elementType) elements to compare")
+                print("Need at least 2 \(elementDescription) to compare")
                 return
             }
             

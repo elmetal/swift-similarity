@@ -74,7 +74,8 @@ struct OutputFormatter {
     /// Generates text output from similar pairs
     private func generateTextOutput(similarPairs: [(CodeElement, CodeElement, Double)]) -> String {
         var output = ""
-        output += "Similar \(elementType.capitalized) Elements Found: \(similarPairs.count)\n"
+        let elementDescription = elementType.lowercased() == "all" ? "Elements (All Types)" : "\(elementType.capitalized) Elements"
+        output += "Similar \(elementDescription) Found: \(similarPairs.count)\n"
         output += "Threshold: \(threshold)\n"
         output += "Advanced Metrics: \(advanced)\n"
         output += "\n"
@@ -86,7 +87,8 @@ struct OutputFormatter {
             output += String(repeating: "=", count: 60) + "\n"
             
             for (index, pair) in similarPairs.enumerated() {
-                output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(elementType.capitalized): \(pair.0.name)\n"
+                let pairElementType = pair.0.elementType.rawValue.capitalized
+                output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(pairElementType): \(pair.0.name)\n"
                 output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
                 output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
                 
