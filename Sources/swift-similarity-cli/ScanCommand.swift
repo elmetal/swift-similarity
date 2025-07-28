@@ -164,9 +164,6 @@ struct ScanCommand: AsyncParsableCommand {
                 let total = progressInfo.totalCandidates
                 
                 print("\rProgress: \(percentage)% (\(processed)/\(total))", terminator: "")
-                if let rate = progressInfo.processingRate {
-                    print(" - \(String(format: "%.1f", rate)) pairs/sec", terminator: "")
-                }
                 if let remaining = progressInfo.estimatedTimeRemaining {
                     print(" - ETA: \(String(format: "%.1f", remaining))s", terminator: "")
                 }
