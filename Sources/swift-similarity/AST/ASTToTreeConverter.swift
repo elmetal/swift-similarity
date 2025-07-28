@@ -57,6 +57,18 @@ public class ASTToTreeConverter {
         case let ifExpr as IfExprSyntax:
             return "IfExpr"
             
+        // MARK: - Control Flow Statements (Priority 1)
+        case let whileStmt as WhileStmtSyntax:
+            return "WhileStmt"
+            
+        case let guardStmt as GuardStmtSyntax:
+            let conditionCount = guardStmt.conditions.count
+            return "GuardStmt(conditions:\(conditionCount))"
+            
+        case let switchExpr as SwitchExprSyntax:
+            let caseCount = switchExpr.cases.count
+            return "SwitchExpr(cases:\(caseCount))"
+            
         case let returnStmt as ReturnStmtSyntax:
             return "ReturnStmt"
             
@@ -79,8 +91,12 @@ public class ASTToTreeConverter {
         case _ as PatternBindingSyntax:
             return "PatternBinding"
             
-        case _ as VariableDeclSyntax:
-            return "VariableDecl"
+        case let variableDecl as VariableDeclSyntax:
+            let bindingCount = variableDecl.bindings.count
+            let hasGetter = variableDecl.bindings.contains { $0.accessorBlock != nil }
+            let modifiers = variableDecl.modifiers.map { $0.name.text }.joined(separator: ",")
+            let isLet = variableDecl.bindingSpecifier.tokenKind == .keyword(.let)
+            return "VariableDecl(bindings:\(bindingCount),computed:\(hasGetter),let:\(isLet),modifiers:\(modifiers))"
             
         case _ as ExpressionStmtSyntax:
             return "ExpressionStmt"
@@ -88,9 +104,37 @@ public class ASTToTreeConverter {
         case let assignmentExpr as AssignmentExprSyntax:
             return "Assignment"
             
-        case let memberAccess as MemberAccessExprSyntax:
-            let memberName = memberAccess.declName.baseName.text
-            return "MemberAccess(\(memberName))"
+        // MARK: - Basic Declaration Types (Priority 1)
+        case let structDecl as StructDeclSyntax:
+            let structName = structDecl.name.text
+            let memberCount = structDecl.memberBlock.members.count
+            let inheritanceInfo = structDecl.inheritanceClause?.inheritedTypes.map { $0.type.description }.joined(separator: ",") ?? ""
+            return "StructDecl(\(structName),members:\(memberCount),inherits:\(inheritanceInfo))"
+            
+        case let classDecl as ClassDeclSyntax:
+            let className = classDecl.name.text
+            let memberCount = classDecl.memberBlock.members.count
+            let inheritanceInfo = classDecl.inheritanceClause?.inheritedTypes.map { $0.type.description }.joined(separator: ",") ?? ""
+            let modifiers = classDecl.modifiers.map { $0.name.text }.joined(separator: ",")
+            return "ClassDecl(\(className),members:\(memberCount),inherits:\(inheritanceInfo),modifiers:\(modifiers))"
+            
+        case let enumDecl as EnumDeclSyntax:
+            let enumName = enumDecl.name.text
+            let caseCount = enumDecl.memberBlock.members.compactMap { $0.decl.as(EnumCaseDeclSyntax.self) }.count
+            let inheritanceInfo = enumDecl.inheritanceClause?.inheritedTypes.map { $0.type.description }.joined(separator: ",") ?? ""
+            return "EnumDecl(\(enumName),cases:\(caseCount),inherits:\(inheritanceInfo))"
+            
+        case let protocolDecl as ProtocolDeclSyntax:
+            let protocolName = protocolDecl.name.text
+            let requirementCount = protocolDecl.memberBlock.members.count
+            let inheritanceInfo = protocolDecl.inheritanceClause?.inheritedTypes.map { $0.type.description }.joined(separator: ",") ?? ""
+            return "ProtocolDecl(\(protocolName),requirements:\(requirementCount),inherits:\(inheritanceInfo))"
+            
+        case let initDecl as InitializerDeclSyntax:
+            let paramCount = initDecl.signature.parameterClause.parameters.count
+            let isOptional = initDecl.optionalMark != nil
+            let modifiers = initDecl.modifiers.map { $0.name.text }.joined(separator: ",")
+            return "InitDecl(params:\(paramCount),optional:\(isOptional),modifiers:\(modifiers))"
             
         case let declRefExpr as DeclReferenceExprSyntax:
             let refName = declRefExpr.baseName.text
