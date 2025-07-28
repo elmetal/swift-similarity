@@ -4,7 +4,7 @@ import swift_similarity
 
 // MARK: - Scan Command
 
-struct ScanCommand: ParsableCommand {
+struct ScanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "scan",
         abstract: "Scan a directory for similar Swift code elements (functions, structs, classes, enums)"
@@ -45,7 +45,7 @@ struct ScanCommand: ParsableCommand {
     @Flag(name: .long, help: "Show detailed performance statistics")
     var stats: Bool = false
     
-    func run() throws {
+    mutating func run() async throws {
         // Validate element type
         guard let targetElementType = CodeElementType(rawValue: elementType) else {
             print("Error: Invalid element type '\(elementType)'. Valid types: function, struct, class, enum")
@@ -79,7 +79,7 @@ struct ScanCommand: ParsableCommand {
             }
             
             // Calculate similarity using optimization engine
-            let (similarPairs, performanceStats) = try calculateWithOptimization(
+            let (similarPairs, performanceStats) = try await calculateWithOptimization(
                 elements: elements,
                 optimizationLevel: optimizationLevel
             )
@@ -134,7 +134,7 @@ struct ScanCommand: ParsableCommand {
     private func calculateWithOptimization(
         elements: [CodeElement],
         optimizationLevel: PerformanceOptimizedConfiguration.PerformanceLevel
-    ) throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
+    ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
         let config = PerformanceOptimizedConfiguration.optimized(
             elementCount: elements.count,
@@ -155,7 +155,7 @@ struct ScanCommand: ParsableCommand {
         let calculator = PerformanceOptimizedCalculator(configuration: finalConfig)
         
         if progress {
-            return calculator.calculateSimilarityWithProgress(
+            return await calculator.calculateSimilarityWithProgress(
                 elements: elements,
                 threshold: threshold
             ) { progressInfo in
@@ -177,7 +177,7 @@ struct ScanCommand: ParsableCommand {
                 }
             }
         } else {
-            return calculator.calculateSimilarity(elements: elements, threshold: threshold)
+            return await calculator.calculateSimilarity(elements: elements, threshold: threshold)
         }
     }
     

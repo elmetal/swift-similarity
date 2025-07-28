@@ -5,7 +5,7 @@ import Foundation
 // MARK: - Code Element Types
 
 /// Represents a type of code element that can be extracted
-public enum CodeElementType: String, CaseIterable {
+public enum CodeElementType: String, CaseIterable, Sendable {
     case function = "function"
     case `struct` = "struct"
     case `class` = "class"
@@ -13,7 +13,7 @@ public enum CodeElementType: String, CaseIterable {
 }
 
 /// Represents an extracted code element with location information
-public struct CodeElement {
+public struct CodeElement: Sendable {
     /// The type of this code element
     public let elementType: CodeElementType
     /// The name of the element

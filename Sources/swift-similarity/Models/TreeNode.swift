@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Tree Node Structure
 
 /// A protocol representing a generic tree node structure.
-public protocol TreeNode {
+public protocol TreeNode: Sendable {
     /// The label identifying this node.
     var label: String { get }
     /// Child nodes of this node.
@@ -11,7 +11,7 @@ public protocol TreeNode {
 }
 
 /// A concrete implementation of TreeNode.
-public struct SimpleTreeNode: TreeNode {
+public struct SimpleTreeNode: TreeNode, Sendable {
     public let label: String
     public let children: [TreeNode]
     
