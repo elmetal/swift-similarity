@@ -68,8 +68,8 @@ public class AdvancedSimilarityMetrics {
         let basicResult = basicCalculator.calculateSimilarity(between: tree1, and: tree2)
         
         // Calculate individual metrics
-        let structuralSim = calculateStructuralSimilarity(tree1, tree2)
-        let labelSim = calculateLabelSimilarity(tree1, tree2)
+        let structuralSim = calculateJaccardSimilarity(set1: extractTreeShape(tree1), set2: extractTreeShape(tree2))
+        let labelSim = calculateJaccardSimilarity(set1: collectLabels(tree1), set2: collectLabels(tree2))
         let depthSim = calculateDepthSimilarity(tree1, tree2)
         
         // Combine metrics using weights
@@ -86,19 +86,7 @@ public class AdvancedSimilarityMetrics {
         )
     }
     
-    /// Calculates structural similarity based on tree shape.
-    private func calculateStructuralSimilarity(_ tree1: TreeNode, _ tree2: TreeNode) -> Double {
-        let shape1 = extractTreeShape(tree1)
-        let shape2 = extractTreeShape(tree2)
-        return calculateJaccardSimilarity(set1: shape1, set2: shape2)
-    }
-    
-    /// Calculates label similarity based on common labels.
-    private func calculateLabelSimilarity(_ tree1: TreeNode, _ tree2: TreeNode) -> Double {
-        let labels1 = collectLabels(tree1)
-        let labels2 = collectLabels(tree2)
-        return calculateJaccardSimilarity(set1: labels1, set2: labels2)
-    }
+
     
     /// Calculates Jaccard similarity coefficient between two arrays of comparable elements.
     /// - Parameters:
