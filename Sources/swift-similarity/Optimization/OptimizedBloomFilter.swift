@@ -4,11 +4,11 @@ import Foundation
 
 /// A highly optimized memory-efficient probabilistic data structure for fast set membership testing.
 /// Uses UInt64 bit vectors instead of Bool arrays for 8x memory reduction and improved cache performance.
-public struct OptimizedBloomFilter {
+public struct OptimizedBloomFilter: Sendable {
     /// Bit vector storage using UInt64 words (64 bits per word)
     private var bitVector: [UInt64]
     /// Number of hash functions to use
-    private let hashFunctionCount: Int
+    public let hashFunctionCount: Int
     /// Size of the bit array (in bits)
     private let size: Int
     /// Number of UInt64 words in the bit vector
