@@ -38,5 +38,9 @@ swift run swift-similarity-cli scan Sources/ --print
 swift run swift-similarity-cli scan Sources/ --advanced
 ```
 
+## Inspired
+
+This project was inspired by [mizchi/similarity](https://github.com/mizchi/similarity).
+
 ## License
 MIT
