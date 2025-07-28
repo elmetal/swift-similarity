@@ -12,7 +12,7 @@ func testASTToTreeConversion() {
     let ast = SwiftASTParser.parseSource(source)
     let tree = ASTToTreeConverter.convert(ast)
     
-    #expect(tree.label == "SourceFileSyntax")
+    #expect(tree.label == "SourceFile")
     #expect(!tree.children.isEmpty)
 }
 
@@ -23,6 +23,6 @@ func testSimpleSourceConversion() {
     let ast = SwiftASTParser.parseSource(source)
     let tree = ASTToTreeConverter.convert(ast)
     
-    #expect(tree.label == "SourceFileSyntax")
+    #expect(tree.label == "SourceFile")
     #expect(!tree.children.isEmpty)
 } 
