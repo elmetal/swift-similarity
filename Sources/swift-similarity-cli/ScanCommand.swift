@@ -33,7 +33,7 @@ struct ScanCommand: ParsableCommand {
     
     // MARK: - Performance Optimization Options
     
-    @Option(name: .long, help: "Optimization level (off, conservative, balanced, aggressive, auto)")
+    @Option(name: .long, help: "Optimization level (conservative, balanced, aggressive, auto)")
     var optimization: String = "auto"
     
     @Flag(name: .long, help: "Show progress during similarity calculation")
@@ -52,18 +52,14 @@ struct ScanCommand: ParsableCommand {
             throw ExitCode.failure
         }
         
-        // Validate optimization level
+        // Parse optimization level
         let optimizationLevel = parseOptimizationLevel(optimization)
         
         print("Scanning directory: \(directory)")
         print("Element type: \(elementType)")
         print("Threshold: \(threshold)")
         print("Advanced metrics: \(advanced)")
-        if optimizationLevel != nil {
-            print("Optimization: \(optimization)")
-        } else {
-            print("Optimization: disabled")
-        }
+        print("Optimization: \(optimization)")
         print("")
         
         do {
@@ -82,24 +78,17 @@ struct ScanCommand: ParsableCommand {
                 return
             }
             
-            let similarPairs: [(CodeElement, CodeElement, Double)]
-            let performanceStats: PerformanceStatistics?
-            
-            // Choose calculation method based on optimization settings
-            if let optLevel = optimizationLevel {
-                (similarPairs, performanceStats) = try calculateWithOptimization(
-                    elements: elements,
-                    optimizationLevel: optLevel
-                )
-            } else {
-                (similarPairs, performanceStats) = try calculateWithoutOptimization(elements: elements)
-            }
+            // Calculate similarity using optimization engine
+            let (similarPairs, performanceStats) = try calculateWithOptimization(
+                elements: elements,
+                optimizationLevel: optimizationLevel
+            )
             
             print("Found \(similarPairs.count) similar pairs")
             
             // Show performance statistics if requested
-            if stats, let perfStats = performanceStats {
-                showPerformanceStatistics(perfStats)
+            if stats {
+                showPerformanceStatistics(performanceStats)
             }
             
             // Create output formatter
@@ -125,10 +114,8 @@ struct ScanCommand: ParsableCommand {
     // MARK: - Helper Methods
     
     /// Parses the optimization level from command line argument
-    private func parseOptimizationLevel(_ optimization: String) -> PerformanceOptimizedConfiguration.PerformanceLevel? {
+    private func parseOptimizationLevel(_ optimization: String) -> PerformanceOptimizedConfiguration.PerformanceLevel {
         switch optimization.lowercased() {
-        case "off", "disabled", "none":
-            return nil
         case "conservative":
             return .conservative
         case "balanced":
@@ -136,10 +123,9 @@ struct ScanCommand: ParsableCommand {
         case "aggressive":
             return .aggressive
         case "auto":
-            // Auto mode will be handled in calculateWithOptimization
             return .balanced
         default:
-            print("Warning: Unknown optimization level '\(optimization)', using 'auto'")
+            print("Warning: Unknown optimization level '\(optimization)', using 'balanced'")
             return .balanced
         }
     }
@@ -195,82 +181,7 @@ struct ScanCommand: ParsableCommand {
         }
     }
     
-    /// Calculates similarity without optimization (legacy mode)
-    private func calculateWithoutOptimization(
-        elements: [CodeElement]
-    ) throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics?) {
-        
-        let startTime = CFAbsoluteTimeGetCurrent()
-        var similarPairs: [(CodeElement, CodeElement, Double)] = []
-        var processedPairs = 0
-        let totalPairs = elements.count * (elements.count - 1) / 2
-        
-        print("Using legacy calculation mode (no optimization)")
-        
-        // Compare all pairs of elements (original O(n²) logic)
-        for i in 0..<elements.count {
-            for j in (i+1)..<elements.count {
-                let element1 = elements[i]
-                let element2 = elements[j]
-                
-                // Skip comparing elements in the same file with the same name
-                if element1.filePath == element2.filePath && element1.name == element2.name {
-                    continue
-                }
-                
-                let similarityScore: Double
-                
-                if advanced {
-                    let metrics = AdvancedSimilarityMetrics()
-                    let result = metrics.calculateAdvancedSimilarity(between: element1.treeNode, and: element2.treeNode)
-                    similarityScore = result.overallSimilarity
-                } else {
-                    let calculator = SimilarityCalculator()
-                    let result = calculator.calculateSimilarity(between: element1.treeNode, and: element2.treeNode)
-                    similarityScore = result.similarityScore
-                }
-                
-                if similarityScore >= threshold {
-                    similarPairs.append((element1, element2, similarityScore))
-                }
-                
-                processedPairs += 1
-                
-                // Show progress for large datasets
-                if progress && totalPairs > 100 && processedPairs % 100 == 0 {
-                    let percentage = Int(Double(processedPairs) / Double(totalPairs) * 100)
-                    print("\rProgress: \(percentage)% (\(processedPairs)/\(totalPairs))", terminator: "")
-                    fflush(stdout)
-                }
-            }
-        }
-        
-        if progress && totalPairs > 100 {
-            print("") // New line when complete
-        }
-        
-        let endTime = CFAbsoluteTimeGetCurrent()
-        let totalTime = endTime - startTime
-        
-        // Sort by similarity score (highest first)
-        similarPairs.sort { $0.2 > $1.2 }
-        
-        // Create basic performance statistics
-        let legacyStats = PerformanceStatistics(
-            prefilteringStats: PrefilteringStatistics(
-                totalPossiblePairs: totalPairs,
-                candidatePairs: totalPairs,
-                prefilteringTimeSeconds: 0.0
-            ),
-            totalCalculationTime: totalTime,
-            parallelProcessingTime: totalTime,
-            threadsUsed: 1,
-            similarPairsFound: similarPairs.count,
-            processingRate: totalTime > 0 ? Double(totalPairs) / totalTime : 0
-        )
-        
-        return (similarPairs, legacyStats)
-    }
+
     
     /// Shows detailed performance statistics
     private func showPerformanceStatistics(_ stats: PerformanceStatistics) {
