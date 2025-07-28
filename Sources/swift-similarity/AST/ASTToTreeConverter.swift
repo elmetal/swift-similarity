@@ -72,6 +72,24 @@ public class ASTToTreeConverter {
         case let returnStmt as ReturnStmtSyntax:
             return "ReturnStmt"
             
+        // MARK: - Literal Expressions (Priority 2)
+        case let stringLiteral as StringLiteralExprSyntax:
+            let segments = stringLiteral.segments.count
+            let literalValue = stringLiteral.representedLiteralValue ?? ""
+            let shortValue = literalValue.count > 10 ? String(literalValue.prefix(10)) + "..." : literalValue
+            return "StringLiteral(\"\(shortValue)\",segments:\(segments))"
+            
+        case let boolLiteral as BooleanLiteralExprSyntax:
+            let value = boolLiteral.literal.text
+            return "BoolLiteral(\(value))"
+            
+        case let nilLiteral as NilLiteralExprSyntax:
+            return "NilLiteral"
+            
+        case let floatLiteral as FloatLiteralExprSyntax:
+            let value = floatLiteral.literal.text
+            return "FloatLiteral(\(value))"
+            
         case let memberAccess as MemberAccessExprSyntax:
             let baseName = memberAccess.base?.description.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let memberName = memberAccess.declName.baseName.text
@@ -103,6 +121,26 @@ public class ASTToTreeConverter {
             
         case let assignmentExpr as AssignmentExprSyntax:
             return "Assignment"
+            
+        // MARK: - Binary and Unary Operators (Priority 2)
+        case let binaryExpr as BinaryOperatorExprSyntax:
+            let operatorText = binaryExpr.operator.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "BinaryOp(\(operatorText))"
+            
+        case let prefixExpr as PrefixOperatorExprSyntax:
+            let operatorText = prefixExpr.operator.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "PrefixOp(\(operatorText))"
+            
+        case let postfixExpr as PostfixOperatorExprSyntax:
+            let operatorText = postfixExpr.operator.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "PostfixOp(\(operatorText))"
+            
+        case let ternaryExpr as TernaryExprSyntax:
+            return "TernaryOp(?:)"
+            
+        case let subscriptExpr as SubscriptCallExprSyntax:
+            let argCount = subscriptExpr.arguments.count
+            return "Subscript(args:\(argCount))"
             
         // MARK: - Basic Declaration Types (Priority 1)
         case let structDecl as StructDeclSyntax:
@@ -140,11 +178,44 @@ public class ASTToTreeConverter {
             let refName = declRefExpr.baseName.text
             return "DeclRef(\(refName))"
             
-        case _ as TupleExprSyntax:
-            return "TupleExpr"
+        // MARK: - Collection Expressions (Priority 2)
+        case let arrayExpr as ArrayExprSyntax:
+            let elementCount = arrayExpr.elements.count
+            return "ArrayExpr(elements:\(elementCount))"
+            
+        case let dictExpr as DictionaryExprSyntax:
+            let elementCount = dictExpr.content.as(DictionaryElementListSyntax.self)?.count ?? 0
+            return "DictExpr(elements:\(elementCount))"
+            
+        case let tupleExpr as TupleExprSyntax:
+            let elementCount = tupleExpr.elements.count
+            return "TupleExpr(elements:\(elementCount))"
             
         case _ as InOutExprSyntax:
             return "InOutExpr"
+            
+        // MARK: - Type Expressions and Closures (Priority 2)  
+        case let closureExpr as ClosureExprSyntax:
+            let paramCount = closureExpr.signature?.parameterClause?.as(ClosureParameterClauseSyntax.self)?.parameters.count ?? 0
+            let hasReturn = closureExpr.signature?.returnClause != nil
+            return "ClosureExpr(params:\(paramCount),hasReturn:\(hasReturn))"
+            
+        case let optionalType as OptionalTypeSyntax:
+            let wrappedType = optionalType.wrappedType.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "OptionalType(\(wrappedType))"
+            
+        case let arrayType as ArrayTypeSyntax:
+            let elementType = arrayType.element.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "ArrayType([\(elementType)])"
+            
+        case let dictType as DictionaryTypeSyntax:
+            let keyType = dictType.key.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let valueType = dictType.value.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "DictType([\(keyType):\(valueType)])"
+            
+        case let tupleType as TupleTypeSyntax:
+            let elementCount = tupleType.elements.count
+            return "TupleType(elements:\(elementCount))"
             
         case _ as FunctionTypeSyntax:
             return "FunctionType"
@@ -163,6 +234,9 @@ public class ASTToTreeConverter {
             } else {
                 typeName
             }
+            
+            // TODO: Handle generic "Syntax" nodes that lose type information
+            // Many nodes return "Syntax" as typename, need deeper investigation
             
             // Avoid empty labels
             return cleanTypeName.isEmpty ? "Unknown" : cleanTypeName
