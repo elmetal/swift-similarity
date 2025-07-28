@@ -68,8 +68,14 @@ public class AdvancedSimilarityMetrics {
         let basicResult = basicCalculator.calculateSimilarity(between: tree1, and: tree2)
         
         // Calculate individual metrics
-        let structuralSim = calculateJaccardSimilarity(set1: extractTreeShape(tree1), set2: extractTreeShape(tree2))
-        let labelSim = calculateJaccardSimilarity(set1: collectLabels(tree1), set2: collectLabels(tree2))
+        let structuralSim = calculateJaccardSimilarity(
+            set1: collectTreeData(tree1) { node in "node_\(node.children.count)_children" },
+            set2: collectTreeData(tree2) { node in "node_\(node.children.count)_children" }
+        )
+        let labelSim = calculateJaccardSimilarity(
+            set1: collectTreeData(tree1) { node in node.label },
+            set2: collectTreeData(tree2) { node in node.label }
+        )
         let depthSim = calculateDepthSimilarity(tree1, tree2)
         
         // Combine metrics using weights
@@ -115,34 +121,22 @@ public class AdvancedSimilarityMetrics {
     }
     
     /// Extracts tree shape signatures for structural comparison.
-    private func extractTreeShape(_ tree: TreeNode) -> [String] {
-        var shapes: [String] = []
-        extractShapeHelper(tree, &shapes)
-        return shapes
+    /// Collects data from tree nodes using a provided collector function.
+    /// - Parameters:
+    ///   - tree: The tree to traverse
+    ///   - collector: Function that extracts data from each node
+    /// - Returns: Array of collected data
+    private func collectTreeData<T>(_ tree: TreeNode, collector: (TreeNode) -> T) -> [T] {
+        var results: [T] = []
+        collectTreeDataHelper(tree, &results, collector)
+        return results
     }
     
-    /// Helper method for shape extraction.
-    private func extractShapeHelper(_ node: TreeNode, _ shapes: inout [String]) {
-        let childCount = node.children.count
-        shapes.append("node_\(childCount)_children")
-        
+    /// Helper method for generic tree data collection.
+    private func collectTreeDataHelper<T>(_ node: TreeNode, _ results: inout [T], _ collector: (TreeNode) -> T) {
+        results.append(collector(node))
         for child in node.children {
-            extractShapeHelper(child, &shapes)
-        }
-    }
-    
-    /// Collects all labels from a tree.
-    private func collectLabels(_ tree: TreeNode) -> [String] {
-        var labels: [String] = []
-        collectLabelsHelper(tree, &labels)
-        return labels
-    }
-    
-    /// Helper method for label collection.
-    private func collectLabelsHelper(_ node: TreeNode, _ labels: inout [String]) {
-        labels.append(node.label)
-        for child in node.children {
-            collectLabelsHelper(child, &labels)
+            collectTreeDataHelper(child, &results, collector)
         }
     }
     
