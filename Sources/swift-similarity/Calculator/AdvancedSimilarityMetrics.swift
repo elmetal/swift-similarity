@@ -90,22 +90,29 @@ public class AdvancedSimilarityMetrics {
     private func calculateStructuralSimilarity(_ tree1: TreeNode, _ tree2: TreeNode) -> Double {
         let shape1 = extractTreeShape(tree1)
         let shape2 = extractTreeShape(tree2)
-        
-        let commonShapes = Set(shape1).intersection(Set(shape2)).count
-        let totalShapes = Set(shape1).union(Set(shape2)).count
-        
-        return totalShapes > 0 ? Double(commonShapes) / Double(totalShapes) : 1.0
+        return calculateJaccardSimilarity(set1: shape1, set2: shape2)
     }
     
     /// Calculates label similarity based on common labels.
     private func calculateLabelSimilarity(_ tree1: TreeNode, _ tree2: TreeNode) -> Double {
         let labels1 = collectLabels(tree1)
         let labels2 = collectLabels(tree2)
+        return calculateJaccardSimilarity(set1: labels1, set2: labels2)
+    }
+    
+    /// Calculates Jaccard similarity coefficient between two arrays of comparable elements.
+    /// - Parameters:
+    ///   - set1: First array of elements
+    ///   - set2: Second array of elements
+    /// - Returns: Jaccard similarity coefficient (0.0 to 1.0)
+    private func calculateJaccardSimilarity<T: Hashable>(set1: [T], set2: [T]) -> Double {
+        let setA = Set(set1)
+        let setB = Set(set2)
         
-        let commonLabels = Set(labels1).intersection(Set(labels2)).count
-        let totalLabels = Set(labels1).union(Set(labels2)).count
+        let intersection = setA.intersection(setB).count
+        let union = setA.union(setB).count
         
-        return totalLabels > 0 ? Double(commonLabels) / Double(totalLabels) : 1.0
+        return union > 0 ? Double(intersection) / Double(union) : 1.0
     }
     
     /// Calculates depth similarity based on tree depths.
