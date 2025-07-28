@@ -5,15 +5,6 @@ import Foundation
 /// Provides file reading utilities for Swift source files.
 public class FileReader {
     
-    /// Reads a Swift file and converts it to TreeNode.
-    /// - Parameter path: The file path to read
-    /// - Returns: The converted TreeNode
-    /// - Throws: File reading or parsing errors
-    public static func readSwiftFile(at path: String) throws -> TreeNode {
-        let sourceFile = try SwiftASTParser.parseFile(at: path)
-        return ASTToTreeConverter.convert(sourceFile)
-    }
-    
     /// Finds all Swift files in a directory.
     /// - Parameter directory: The directory path to search
     /// - Returns: Array of Swift file paths

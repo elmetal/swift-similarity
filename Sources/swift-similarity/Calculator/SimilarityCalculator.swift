@@ -103,15 +103,5 @@ public class SimilarityCalculator {
         return count
     }
     
-    /// Calculates similarity between two Swift source files.
-    /// - Parameters:
-    ///   - file1Path: Path to first Swift file
-    ///   - file2Path: Path to second Swift file
-    /// - Returns: Similarity calculation result
-    /// - Throws: File reading or parsing errors
-    public func calculateSimilarity(betweenFiles file1Path: String, and file2Path: String) throws -> SimilarityResult {
-        let tree1 = try FileReader.readSwiftFile(at: file1Path)
-        let tree2 = try FileReader.readSwiftFile(at: file2Path)
-        return calculateSimilarity(between: tree1, and: tree2)
-    }
+
 } 
