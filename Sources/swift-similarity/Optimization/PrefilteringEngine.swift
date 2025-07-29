@@ -88,11 +88,11 @@ public class PrefilteringEngine {
         let totalPossiblePairs = elements.count * (elements.count - 1) / 2
         
         var candidates: [(Int, Int)] = []
-        var bloomFilter: BloomFilter? = nil
+        var bloomFilter: OptimizedBloomFilter? = nil
         
         // Initialize bloom filter if enabled
         if configuration.enableBloomFilter && elements.count > 50 {
-            bloomFilter = BloomFilter.forASTFingerprints(
+            bloomFilter = OptimizedBloomFilter.forASTFingerprints(
                 elementCount: elements.count,
                 targetAccuracy: 1.0 - configuration.bloomFilterFalsePositiveRate
             )

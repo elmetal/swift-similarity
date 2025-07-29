@@ -45,6 +45,9 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Show detailed performance statistics")
     var stats: Bool = false
     
+    @Flag(name: .long, help: "Use hierarchical processing pipeline for massive datasets (Phase 11)")
+    var hierarchical: Bool = false
+    
     mutating func run() async throws {
         // Determine target element types
         let targetElementTypes: Set<CodeElementType>
@@ -85,11 +88,19 @@ struct ScanCommand: AsyncParsableCommand {
                 return
             }
             
-            // Calculate similarity using optimization engine
-            let (similarPairs, performanceStats) = try await calculateWithOptimization(
-                elements: elements,
-                optimizationLevel: optimizationLevel
-            )
+            // Calculate similarity using selected processing method
+            let (similarPairs, performanceStats) = if hierarchical {
+                try await calculateWithHierarchical(
+                    elements: elements,
+                    threshold: threshold,
+                    optimizationLevel: optimizationLevel
+                )
+            } else {
+                try await calculateWithOptimization(
+                    elements: elements,
+                    optimizationLevel: optimizationLevel
+                )
+            }
             
             print("Found \(similarPairs.count) similar pairs")
             
@@ -242,8 +253,136 @@ struct ScanCommand: AsyncParsableCommand {
         return (candidates, performanceStats)
     }
     
-
+    /// Calculates similarity using hierarchical processing pipeline (Phase 11)
+    private func calculateWithHierarchical(
+        elements: [CodeElement],
+        threshold: Double,
+        optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
+    ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
+        
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        // Determine project scale and configuration
+        let scale = VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.from(elementCount: elements.count)
+        let hierarchicalConfig = HierarchicalProcessor.Configuration.optimal(for: scale)
+        
+        // Set up progress reporting for hierarchical processing
+        let progressCallback: (@Sendable (HierarchicalProcessor.HierarchicalProgress) -> Void)?
+        if progress {
+            progressCallback = { progressInfo in
+                let reductionValue = progressInfo.reductionRatio * 100
+                let percentage = if reductionValue.isFinite {
+                    Int(max(0, min(100, reductionValue)))
+                } else {
+                    0
+                }
+                print("\rStage \(progressInfo.currentStage): \(progressInfo.stageName) - \(progressInfo.elementsProcessed)/\(progressInfo.totalElements) - \(percentage)% reduction", terminator: "")
+                fflush(stdout)
+                
+                if progressInfo.elementsProcessed == progressInfo.totalElements {
+                    print("") // New line when stage complete
+                }
+            }
+        } else {
+            progressCallback = nil
+        }
+        
+        // Create vectorized engine configuration for hierarchical processor
+        let vectorizedConfig = if optimizationLevel == .auto {
+            VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: elements.count)
+        } else {
+            VectorizedPrefilteringEngine.Configuration(
+                optimizationLevel: optimizationLevel,
+                blockSize: 0,
+                maxConcurrency: threads > 0 ? threads : 0
+            )
+        }
+        
+        // Initialize hierarchical processor
+        let processor = HierarchicalProcessor(
+            configuration: hierarchicalConfig,
+            vectorizedConfig: vectorizedConfig,
+            progressCallback: progressCallback
+        )
+        
+        // Display hierarchical processing info
+        print("Hierarchical Processing (Phase 11):")
+        print("   Project scale: \(scale.rawValue)")
+        print("   Quick stage offset: +\(String(format: "%.2f", hierarchicalConfig.quickStageOffset))")
+        print("   Medium stage offset: +\(String(format: "%.2f", hierarchicalConfig.mediumStageOffset))")
+        print("   Max candidates per stage: \(hierarchicalConfig.maxCandidatesPerStage)")
+        if hierarchicalConfig.enableSampling {
+            print("   Sampling: \(String(format: "%.1f", hierarchicalConfig.samplingRatio * 100))%")
+        }
+        print("")
+        
+        // Process through hierarchical pipeline
+        let (results, stageStatistics) = try await processor.process(elements: elements, threshold: threshold)
+        
+        let endTime = CFAbsoluteTimeGetCurrent()
+        let totalTime = endTime - startTime
+        
+        // Convert results to expected format
+        let similarPairs = results.map { (element1, element2, similarity) in
+            (element1, element2, similarity)
+        }
+        
+        // Calculate aggregate statistics
+        let totalPairs = elements.count * (elements.count - 1) / 2
+        let _ = stageStatistics.first?.inputCandidates ?? totalPairs // totalInputCandidates - unused
+        let finalOutputCandidates = stageStatistics.last?.outputCandidates ?? similarPairs.count
+        
+        let prefilteringStats = PrefilteringStatistics(
+            totalPossiblePairs: totalPairs,
+            candidatePairs: finalOutputCandidates,
+            prefilteringTimeSeconds: totalTime,
+            bloomFilterStats: nil
+        )
+        
+        let performanceStats = PerformanceStatistics(
+            prefilteringStats: prefilteringStats,
+            totalCalculationTime: totalTime,
+            parallelProcessingTime: totalTime,
+            threadsUsed: vectorizedConfig.maxConcurrency > 0 ? vectorizedConfig.maxConcurrency : ProcessInfo.processInfo.processorCount,
+            peakMemoryUsage: nil,
+            similarPairsFound: similarPairs.count,
+            processingRate: Double(similarPairs.count) / totalTime
+        )
+        
+        // Display stage statistics if requested
+        if stats {
+            showHierarchicalStatistics(stageStatistics)
+        }
+        
+        return (similarPairs, performanceStats)
+    }
     
+    /// Shows detailed hierarchical processing statistics
+    private func showHierarchicalStatistics(_ stageStats: [HierarchicalProcessor.StageStatistics]) {
+        print("\n=== Hierarchical Processing Statistics ===")
+        
+        for (_, stat) in stageStats.enumerated() {
+            print("\n--- Stage \(stat.stage): \(stat.name) ---")
+            print("Processing time: \(String(format: "%.3f", stat.processingTime))s")
+            print("Input candidates: \(stat.inputCandidates)")
+            print("Output candidates: \(stat.outputCandidates)")
+            print("Reduction ratio: \(String(format: "%.1f", stat.reductionRatio * 100))%")
+            print("Processing rate: \(String(format: "%.1f", stat.processingRate)) candidates/sec")
+        }
+        
+        // Summary statistics
+        let totalTime = stageStats.reduce(0) { $0 + $1.processingTime }
+        let firstStageInput = stageStats.first?.inputCandidates ?? 0
+        let lastStageOutput = stageStats.last?.outputCandidates ?? 0
+        let overallReduction = firstStageInput > 0 ? Double(firstStageInput - lastStageOutput) / Double(firstStageInput) : 0.0
+        
+        print("\n--- Overall Summary ---")
+        print("Total processing time: \(String(format: "%.3f", totalTime))s")
+        print("Overall reduction: \(String(format: "%.1f", overallReduction * 100))%")
+        print("Stages completed: \(stageStats.count)")
+        print("==========================================\n")
+    }
+
     /// Shows detailed performance statistics
     private func showPerformanceStatistics(_ stats: PerformanceStatistics) {
         print("\n=== Performance Statistics ===")

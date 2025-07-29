@@ -166,25 +166,11 @@ func testOptimizedBloomFilterForASTFingerprints() {
     #expect(abs(targetRate - 0.05) < 0.001) // 1.0 - 0.95 = 0.05
 }
 
-@Test("OptimizedBloomFilter backward compatibility")
-func testOptimizedBloomFilterBackwardCompatibility() {
-    // Create a standard BloomFilter
-    let standardFilter = BloomFilter(expectedElements: 100, falsePositiveRate: 0.1)
-    let standardStats = standardFilter.getStatistics()
-    
-    // Create equivalent OptimizedBloomFilter
-    let optimizedFilter = OptimizedBloomFilter.from(standardFilter)
-    let optimizedStats = optimizedFilter.getStatistics()
-    
-    // Should have similar configuration
-    #expect(optimizedStats["expected_elements"] as? Int == standardStats["expected_elements"] as? Int)
-    #expect(optimizedStats["target_false_positive_rate"] as? Double == standardStats["target_false_positive_rate"] as? Double)
-    
-    // But should use less memory
-    let optimizedMemory = optimizedStats["memory_usage_bytes"] as? Int ?? Int.max
-    let equivalentBoolMemory = optimizedFilter.memoryUsageIfBoolArray
-    #expect(optimizedMemory < equivalentBoolMemory)
-}
+// Note: Backward compatibility test removed as BloomFilter.swift has been deleted
+// @Test("OptimizedBloomFilter backward compatibility")
+// func testOptimizedBloomFilterBackwardCompatibility() {
+//     // This test is commented out because BloomFilter and from() method have been removed
+// }
 
 @Test("OptimizedBloomFilter bit operations performance")
 func testBitOperationsPerformance() {

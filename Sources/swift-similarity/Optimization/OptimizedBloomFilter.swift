@@ -197,14 +197,12 @@ extension OptimizedBloomFilter {
 // MARK: - Backward Compatibility
 
 extension OptimizedBloomFilter {
-    /// Creates an OptimizedBloomFilter with the same configuration as a standard BloomFilter
-    /// - Parameter bloomFilter: The standard bloom filter to migrate from
-    /// - Returns: Equivalent optimized bloom filter
-    public static func from(_ bloomFilter: BloomFilter) -> OptimizedBloomFilter {
-        let stats = bloomFilter.getStatistics()
-        let expectedElements = stats["expected_elements"] as? Int ?? 100
-        let falsePositiveRate = stats["target_false_positive_rate"] as? Double ?? 0.1
-        
-        return OptimizedBloomFilter(expectedElements: expectedElements, falsePositiveRate: falsePositiveRate)
-    }
+    // Note: BloomFilter compatibility removed as BloomFilter.swift has been deleted
+    // public static func from(_ bloomFilter: BloomFilter) -> OptimizedBloomFilter {
+    //     let stats = bloomFilter.getStatistics()
+    //     let expectedElements = stats["expected_elements"] as? Int ?? 100
+    //     let falsePositiveRate = stats["target_false_positive_rate"] as? Double ?? 0.1
+    //     
+    //     return OptimizedBloomFilter(expectedElements: expectedElements, falsePositiveRate: falsePositiveRate)
+    // }
 } 
