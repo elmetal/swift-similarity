@@ -50,7 +50,7 @@ public final class HierarchicalProcessor: Sendable {
                 return Configuration(
                     quickStageOffset: -0.2, // More permissive for Stage 1
                     mediumStageOffset: 0.0,  // Use exact threshold for Stage 2
-                    maxCandidatesPerStage: 5000,
+                    maxCandidatesPerStage: 6000, // Increased to ensure coverage of all legitimate pairs
                     enableSampling: false,
                     enableEarlyTermination: false
                 )
@@ -66,23 +66,23 @@ public final class HierarchicalProcessor: Sendable {
                 )
             case .large:
                 return Configuration(
-                    quickStageOffset: 0.25,
-                    mediumStageOffset: 0.12,
-                    maxCandidatesPerStage: 10000,
+                    quickStageOffset: 0.15,  // Fixed: 0.7 + 0.15 = 0.85 (reasonable)
+                    mediumStageOffset: 0.08,  // Fixed: 0.7 + 0.08 = 0.78 (reasonable)
+                    maxCandidatesPerStage: 12000,  // Increased from 10000
                     enableSampling: true,
-                    samplingRatio: 0.8,
+                    samplingRatio: 0.85,  // Increased from 0.8
                     enableEarlyTermination: true,
-                    targetResultCount: 1000
+                    targetResultCount: 1200  // Increased from 1000
                 )
             case .massive:
                 return Configuration(
-                    quickStageOffset: 0.3,
-                    mediumStageOffset: 0.15,
-                    maxCandidatesPerStage: 5000,
+                    quickStageOffset: 0.15,  // Fixed: 0.7 + 0.15 = 0.85 (reasonable)
+                    mediumStageOffset: 0.08,  // Fixed: 0.7 + 0.08 = 0.78 (reasonable)
+                    maxCandidatesPerStage: 8000,  // Increased from 5000
                     enableSampling: true,
-                    samplingRatio: 0.6,
+                    samplingRatio: 0.7,  // Increased from 0.6 (30% discard instead of 40%)
                     enableEarlyTermination: true,
-                    targetResultCount: 500
+                    targetResultCount: 800  // Increased from 500
                 )
             }
         }
@@ -250,8 +250,8 @@ public final class HierarchicalProcessor: Sendable {
                 // This ensures hierarchical processing finds the same pairs as standard processing
                 candidates.append((element1, element2))
                 
-                // Check max candidates limit
-                if candidates.count >= configuration.maxCandidatesPerStage {
+                // Check max candidates limit (0 means no limit)
+                if configuration.maxCandidatesPerStage > 0 && candidates.count >= configuration.maxCandidatesPerStage {
                     break
                 }
                 
@@ -264,7 +264,7 @@ public final class HierarchicalProcessor: Sendable {
                 }
             }
             
-            if candidates.count >= configuration.maxCandidatesPerStage {
+            if configuration.maxCandidatesPerStage > 0 && candidates.count >= configuration.maxCandidatesPerStage {
                 break
             }
         }
@@ -308,8 +308,8 @@ public final class HierarchicalProcessor: Sendable {
             if hashSimilarity >= threshold {
                 filteredCandidates.append((element1, element2))
                 
-                // Check max candidates limit
-                if filteredCandidates.count >= configuration.maxCandidatesPerStage {
+                // Check max candidates limit (0 means no limit)
+                if configuration.maxCandidatesPerStage > 0 && filteredCandidates.count >= configuration.maxCandidatesPerStage {
                     break
                 }
             }
