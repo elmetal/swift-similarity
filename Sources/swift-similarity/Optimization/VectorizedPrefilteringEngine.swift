@@ -76,6 +76,164 @@ public final class VectorizedPrefilteringEngine: Sendable {
         }
     }
     
+    // MARK: - Adaptive Configuration (Phase 10)
+    
+    /// Adaptive configuration system for optimal performance across different project scales
+    public struct AdaptiveConfiguration: Sendable {
+        
+        /// Project scale categories based on dataset size
+        public enum ProjectScale: String, CaseIterable, Sendable {
+            case small = "small"       // 0-10K pairs: Maximum parallelism
+            case medium = "medium"     // 10K-100K pairs: Balanced approach
+            case large = "large"       // 100K-1M pairs: Conservative parallelism
+            case massive = "massive"   // 1M+ pairs: Sequential with optimizations
+            
+            /// Calculate project scale from element count
+            public static func from(elementCount: Int) -> ProjectScale {
+                let possiblePairs = elementCount * (elementCount - 1) / 2
+                
+                switch possiblePairs {
+                case 0..<10_000:
+                    return .small
+                case 10_000..<100_000:
+                    return .medium
+                case 100_000..<1_000_000:
+                    return .large
+                default:
+                    return .massive
+                }
+            }
+        }
+        
+        /// System resource monitoring
+        public struct SystemResources: Sendable {
+            /// Available CPU cores
+            public let availableCores: Int
+            /// Total memory in bytes
+            public let totalMemory: UInt64
+            /// Available memory in bytes
+            public let availableMemory: UInt64
+            /// Current CPU load percentage (0.0-1.0)
+            public let cpuLoad: Double
+            
+            /// Get current system resources
+            public static func current() -> SystemResources {
+                let cores = ProcessInfo.processInfo.processorCount
+                let totalMem = ProcessInfo.processInfo.physicalMemory
+                
+                // Simplified memory calculation - in production would use sysctl
+                let availableMem = totalMem / 2  // Conservative estimate
+                
+                // Simplified CPU load - in production would use host_cpu_load_info
+                let cpuLoad = 0.5  // Conservative estimate
+                
+                return SystemResources(
+                    availableCores: cores,
+                    totalMemory: totalMem,
+                    availableMemory: availableMem,
+                    cpuLoad: cpuLoad
+                )
+            }
+        }
+        
+        /// Generate optimal configuration for given dataset size and system resources
+        public static func optimal(for elementCount: Int, systemResources: SystemResources? = nil) -> Configuration {
+            let scale = ProjectScale.from(elementCount: elementCount)
+            let resources = systemResources ?? SystemResources.current()
+            
+            return generateConfiguration(for: scale, resources: resources, elementCount: elementCount)
+        }
+        
+        /// Generate configuration based on project scale and system resources
+        private static func generateConfiguration(
+            for scale: ProjectScale,
+            resources: SystemResources,
+            elementCount: Int
+        ) -> Configuration {
+            switch scale {
+            case .small:
+                // Small projects: Maximum parallelism for best responsiveness
+                return Configuration(
+                    optimizationLevel: .aggressive,
+                    blockSize: min(1000, max(100, elementCount / 4)),
+                    maxConcurrency: resources.availableCores,
+                    hashMatrixCacheSize: 5000,
+                    enableSIMD: true
+                )
+                
+            case .medium:
+                // Medium projects: Balanced approach
+                let optimalThreads = max(2, min(resources.availableCores / 2, 8))
+                return Configuration(
+                    optimizationLevel: .balanced,
+                    blockSize: min(2000, max(500, elementCount / 8)),
+                    maxConcurrency: optimalThreads,
+                    hashMatrixCacheSize: 10000,
+                    enableSIMD: true
+                )
+                
+            case .large:
+                // Large projects: Conservative parallelism to avoid CPU saturation
+                let conservativeThreads = max(2, min(4, resources.availableCores / 2))
+                return Configuration(
+                    optimizationLevel: .conservative,
+                    blockSize: min(5000, max(1000, elementCount / 16)),
+                    maxConcurrency: conservativeThreads,
+                    hashMatrixCacheSize: 15000,
+                    enableSIMD: true
+                )
+                
+            case .massive:
+                // Massive projects: Sequential processing with optimizations
+                return Configuration(
+                    optimizationLevel: .conservative,
+                    blockSize: min(10000, max(2000, elementCount / 32)),
+                    maxConcurrency: 2,  // Minimal parallelism
+                    hashMatrixCacheSize: 20000,
+                    enableSIMD: true
+                )
+            }
+        }
+        
+        /// Adjust configuration based on runtime performance metrics
+        public static func adjust(
+            _ configuration: Configuration,
+            cpuUtilization: Double,
+            memoryPressure: Double,
+            processingRate: Double
+        ) -> Configuration {
+            var adjustedConfig = configuration
+            
+            // If CPU utilization is too high (>80%), reduce parallelism
+            if cpuUtilization > 0.8 {
+                let reducedConcurrency = max(1, Int(Double(adjustedConfig.maxConcurrency) * 0.7))
+                adjustedConfig = Configuration(
+                    optimizationLevel: adjustedConfig.optimizationLevel,
+                    blockSize: adjustedConfig.blockSize,
+                    maxConcurrency: reducedConcurrency,
+                    hashMatrixCacheSize: adjustedConfig.hashMatrixCacheSize,
+                    enableSIMD: adjustedConfig.enableSIMD,
+                    progressCallback: adjustedConfig.progressCallback
+                )
+            }
+            
+            // If memory pressure is high (>90%), reduce cache size
+            if memoryPressure > 0.9 {
+                let reducedCacheSize = Int(Double(adjustedConfig.hashMatrixCacheSize) * 0.5)
+                adjustedConfig = Configuration(
+                    optimizationLevel: adjustedConfig.optimizationLevel,
+                    blockSize: adjustedConfig.blockSize,
+                    maxConcurrency: adjustedConfig.maxConcurrency,
+                    hashMatrixCacheSize: reducedCacheSize,
+                    enableSIMD: adjustedConfig.enableSIMD,
+                    progressCallback: adjustedConfig.progressCallback
+                )
+            }
+            
+            return adjustedConfig
+        }
+    }
+    
     /// Progress information for vectorized processing
     public struct VectorizedProgress: Sendable {
         public let blocksProcessed: Int

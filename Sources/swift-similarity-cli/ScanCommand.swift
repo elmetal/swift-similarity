@@ -167,14 +167,49 @@ struct ScanCommand: AsyncParsableCommand {
             progressCallback = nil
         }
         
-        let vectorizedConfig = VectorizedPrefilteringEngine.Configuration(
-            optimizationLevel: optimizationLevel,
-            blockSize: 0, // Auto-detect
-            maxConcurrency: threads > 0 ? threads : 0, // Auto-detect if not specified
-            hashMatrixCacheSize: 10000,
-            enableSIMD: true,
-            progressCallback: progressCallback
-        )
+        // Use adaptive configuration for optimal performance (Phase 10)
+        let vectorizedConfig: VectorizedPrefilteringEngine.Configuration
+        if optimizationLevel == .auto {
+            // Adaptive configuration based on dataset size and system resources
+            var adaptiveConfig = VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: elements.count)
+            
+            // Override thread count if specified by user
+            if threads > 0 {
+                adaptiveConfig = VectorizedPrefilteringEngine.Configuration(
+                    optimizationLevel: adaptiveConfig.optimizationLevel,
+                    blockSize: adaptiveConfig.blockSize,
+                    maxConcurrency: threads,
+                    hashMatrixCacheSize: adaptiveConfig.hashMatrixCacheSize,
+                    enableSIMD: adaptiveConfig.enableSIMD,
+                    progressCallback: progressCallback
+                )
+            } else {
+                adaptiveConfig = VectorizedPrefilteringEngine.Configuration(
+                    optimizationLevel: adaptiveConfig.optimizationLevel,
+                    blockSize: adaptiveConfig.blockSize,
+                    maxConcurrency: adaptiveConfig.maxConcurrency,
+                    hashMatrixCacheSize: adaptiveConfig.hashMatrixCacheSize,
+                    enableSIMD: adaptiveConfig.enableSIMD,
+                    progressCallback: progressCallback
+                )
+            }
+            vectorizedConfig = adaptiveConfig
+            
+            // Display relevant configuration info for user
+            let scale = VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.from(elementCount: elements.count)
+            print("Auto-detected: \(scale.rawValue) project, using \(vectorizedConfig.maxConcurrency) threads")
+            print("")
+        } else {
+            // Manual configuration as before
+            vectorizedConfig = VectorizedPrefilteringEngine.Configuration(
+                optimizationLevel: optimizationLevel,
+                blockSize: 0, // Auto-detect
+                maxConcurrency: threads > 0 ? threads : 0, // Auto-detect if not specified
+                hashMatrixCacheSize: 10000,
+                enableSIMD: true,
+                progressCallback: progressCallback
+            )
+        }
         
         // Use vectorized prefiltering engine for maximum performance
         let vectorizedEngine = VectorizedPrefilteringEngine(configuration: vectorizedConfig)
