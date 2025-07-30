@@ -161,17 +161,22 @@ struct ScanCommand: AsyncParsableCommand {
         if progress {
             progressCallback = { progressInfo in
                 let percentage = Int(progressInfo.completionPercentage)
-                let processed = progressInfo.blocksProcessed
-                let total = progressInfo.totalBlocks
                 
-                print("\rProgress: \(percentage)% (\(processed)/\(total))", terminator: "")
-                if let remaining = progressInfo.estimatedTimeRemaining {
-                    print(" - ETA: \(String(format: "%.1f", remaining))s", terminator: "")
+                var progressText = "\rProgress: \(percentage)%"
+                if progressInfo.candidatesFound > 0 {
+                    progressText += " - \(progressInfo.candidatesFound) candidates found"
                 }
-                fflush(stdout)
+                if let remaining = progressInfo.estimatedTimeRemaining {
+                    progressText += " - ETA: \(String(format: "%.1f", remaining))s"
+                }
+                
+                // Use FileHandle for immediate output without buffering
+                if let data = progressText.data(using: .utf8) {
+                    try? FileHandle.standardError.write(contentsOf: data)
+                }
                 
                 if progressInfo.blocksProcessed == progressInfo.totalBlocks {
-                    print("") // New line when complete
+                    try? FileHandle.standardError.write(contentsOf: Data("\n".utf8))
                 }
             }
         } else {
@@ -270,17 +275,24 @@ struct ScanCommand: AsyncParsableCommand {
         let progressCallback: (@Sendable (HierarchicalProcessor.HierarchicalProgress) -> Void)?
         if progress {
             progressCallback = { progressInfo in
-                let reductionValue = progressInfo.reductionRatio * 100
-                let percentage = if reductionValue.isFinite {
-                    Int(max(0, min(100, reductionValue)))
-                } else {
-                    0
+                // Always show progress for all stages
+                guard progressInfo.currentStage > 0 else { return }
+                
+                let completionPercentage = progressInfo.totalElements > 0 ? 
+                    Int((Double(progressInfo.elementsProcessed) / Double(progressInfo.totalElements)) * 100) : 0
+                
+                var progressText = "\rStage \(progressInfo.currentStage): \(progressInfo.stageName) - \(completionPercentage)%"
+                if progressInfo.candidatesFound > 0 {
+                    progressText += " - \(progressInfo.candidatesFound) candidates"
                 }
-                print("\rStage \(progressInfo.currentStage): \(progressInfo.stageName) - \(progressInfo.elementsProcessed)/\(progressInfo.totalElements) - \(percentage)% reduction", terminator: "")
-                fflush(stdout)
+                
+                // Use FileHandle for immediate output without buffering
+                if let data = progressText.data(using: .utf8) {
+                    try? FileHandle.standardError.write(contentsOf: data)
+                }
                 
                 if progressInfo.elementsProcessed == progressInfo.totalElements {
-                    print("") // New line when stage complete
+                    try? FileHandle.standardError.write(contentsOf: Data("\n".utf8))
                 }
             }
         } else {
@@ -306,7 +318,6 @@ struct ScanCommand: AsyncParsableCommand {
         )
         
         // Display hierarchical processing info
-        print("Hierarchical Processing (Phase 11):")
         print("   Project scale: \(scale.rawValue)")
         print("   Quick stage offset: +\(String(format: "%.2f", hierarchicalConfig.quickStageOffset))")
         print("   Medium stage offset: +\(String(format: "%.2f", hierarchicalConfig.mediumStageOffset))")

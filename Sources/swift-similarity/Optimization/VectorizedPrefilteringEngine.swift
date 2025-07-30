@@ -315,8 +315,31 @@ public final class VectorizedPrefilteringEngine: Sendable {
         
         let startTime = CFAbsoluteTimeGetCurrent()
         
-        // Extract fingerprints and create hash matrix
-        let fingerprints = elements.map { createFingerprint(from: $0.treeNode) }
+        // Extract fingerprints with progress reporting (this is the heavy operation)
+        var fingerprints: [ASTNodeFingerprint] = []
+        for (index, element) in elements.enumerated() {
+            let fingerprint = createFingerprint(from: element.treeNode)
+            fingerprints.append(fingerprint)
+            
+            // Report progress during fingerprint creation - more frequent for smaller projects
+            let reportInterval = if elements.count < 50 {
+                1  // Report every element for small projects
+            } else if elements.count < 200 {
+                max(1, elements.count / 10)  // Report every 10% for medium projects  
+            } else {
+                max(1, elements.count / 20)  // Report every 5% for large projects
+            }
+            
+            if index % reportInterval == 0 || index == elements.count - 1 {
+                await reportProgress(
+                    blocksProcessed: index + 1,
+                    totalBlocks: elements.count, // Total elements for fingerprint creation
+                    candidatesFound: 0,
+                    startTime: startTime
+                )
+            }
+        }
+        
         let hashCount = optimizedBloomFilter.hashFunctionCount
         let blockSize = determineOptimalBlockSize(for: elements.count)
         
@@ -328,6 +351,14 @@ public final class VectorizedPrefilteringEngine: Sendable {
         
         // Create processing blocks for parallel execution
         let blocks = createProcessingBlocks(elements: elements, matrix: hashMatrix, blockSize: blockSize)
+        
+        // Report progress after block creation
+        await reportProgress(
+            blocksProcessed: 0,
+            totalBlocks: blocks.count,
+            candidatesFound: 0,
+            startTime: startTime
+        )
         
         // Process blocks in parallel using TaskGroup
         let candidates = try await processBlocksInParallel(blocks: blocks, threshold: threshold, startTime: startTime)

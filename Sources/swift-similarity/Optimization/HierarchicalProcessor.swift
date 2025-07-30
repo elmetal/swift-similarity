@@ -186,16 +186,48 @@ public final class HierarchicalProcessor: Sendable {
         threshold: Double
     ) async throws -> ([(CodeElement, CodeElement, Double)], [StageStatistics]) {
         
-        let _ = CFAbsoluteTimeGetCurrent() // startTime - unused in current implementation
+        let stage1StartTime = CFAbsoluteTimeGetCurrent()
         var statistics: [StageStatistics] = []
+        
+        // Report preparation stage progress
+        reportProgress(stage: 1, stageName: "Preparing", elementsProcessed: 0, totalElements: elements.count, candidatesFound: 0, reductionRatio: 0.0)
+        
+        // Create fingerprints with progress reporting (this is the heavy operation)
+        var fingerprints: [ASTNodeFingerprint] = []
+        for (index, element) in elements.enumerated() {
+            let fingerprint = createFingerprint(from: element.treeNode)
+            fingerprints.append(fingerprint)
+            
+            // Report progress during fingerprint creation - more frequent for smaller projects
+            let reportInterval = if elements.count < 50 {
+                1  // Report every element for small projects
+            } else if elements.count < 200 {
+                max(1, elements.count / 10)  // Report every 10% for medium projects  
+            } else {
+                max(1, elements.count / 20)  // Report every 5% for large projects
+            }
+            
+            if index % reportInterval == 0 || index == elements.count - 1 {
+                reportProgress(stage: 1, stageName: "Creating Fingerprints", elementsProcessed: index + 1, totalElements: elements.count, candidatesFound: 0, reductionRatio: 0.0)
+            }
+        }
         
         // Apply sampling if enabled for massive datasets
         let sampledElements = applySampling(elements: elements)
         let _ = sampledElements.count * (sampledElements.count - 1) / 2 // totalPossiblePairs - unused
         
-        reportProgress(stage: 0, stageName: "Initialization", elementsProcessed: 0, totalElements: sampledElements.count, candidatesFound: 0, reductionRatio: 0.0)
+        // Create Stage 1 statistics
+        let stage1EndTime = CFAbsoluteTimeGetCurrent()
+        let stage1Statistics = StageStatistics(
+            stage: 1,
+            name: "Preparation & Fingerprinting",
+            processingTime: stage1EndTime - stage1StartTime,
+            inputCandidates: elements.count,
+            outputCandidates: sampledElements.count
+        )
+        statistics.append(stage1Statistics)
         
-        // Stage 1: Ultra-fast fingerprint-only comparison
+        // Stage 2: Ultra-fast fingerprint-only comparison
         let stage1Results = try await stage1QuickFilter(
             elements: sampledElements,
             threshold: threshold + configuration.quickStageOffset,
@@ -205,7 +237,7 @@ public final class HierarchicalProcessor: Sendable {
         
         // Early termination check
         if shouldTerminateEarly(candidateCount: stage1Results.candidates.count) {
-            let finalResults = try await stage3PreciseCalculation(
+            let finalResults = try await stage2DirectAPTEDCalculation(
                 candidates: stage1Results.candidates,
                 threshold: threshold,
                 stageStartTime: CFAbsoluteTimeGetCurrent()
@@ -234,7 +266,7 @@ public final class HierarchicalProcessor: Sendable {
         stageStartTime: Double
     ) async throws -> (candidates: [(CodeElement, CodeElement)], statistics: StageStatistics) {
         
-        reportProgress(stage: 1, stageName: "Quick Filter", elementsProcessed: 0, totalElements: elements.count, candidatesFound: 0, reductionRatio: 0.0)
+        reportProgress(stage: 2, stageName: "Quick Filter", elementsProcessed: 0, totalElements: elements.count, candidatesFound: 0, reductionRatio: 0.0)
         
         var candidates: [(CodeElement, CodeElement)] = []
         let totalPairs = elements.count * (elements.count - 1) / 2
@@ -260,7 +292,7 @@ public final class HierarchicalProcessor: Sendable {
                 // Report progress periodically
                 if processedPairs % 10000 == 0 {
                     let reductionRatio = totalPairs > 0 ? Double(totalPairs - candidates.count) / Double(totalPairs) : 0.0
-                    reportProgress(stage: 1, stageName: "Quick Filter", elementsProcessed: processedPairs, totalElements: totalPairs, candidatesFound: candidates.count, reductionRatio: reductionRatio)
+                    reportProgress(stage: 2, stageName: "Quick Filter", elementsProcessed: processedPairs, totalElements: totalPairs, candidatesFound: candidates.count, reductionRatio: reductionRatio)
                 }
             }
             
@@ -273,10 +305,10 @@ public final class HierarchicalProcessor: Sendable {
         let processingTime = endTime - stageStartTime
         let finalReductionRatio = totalPairs > 0 ? Double(totalPairs - candidates.count) / Double(totalPairs) : 0.0
         
-        reportProgress(stage: 1, stageName: "Quick Filter", elementsProcessed: totalPairs, totalElements: totalPairs, candidatesFound: candidates.count, reductionRatio: finalReductionRatio)
+        reportProgress(stage: 2, stageName: "Quick Filter", elementsProcessed: totalPairs, totalElements: totalPairs, candidatesFound: candidates.count, reductionRatio: finalReductionRatio)
         
         let statistics = StageStatistics(
-            stage: 1,
+            stage: 2,
             name: "Quick Filter",
             processingTime: processingTime,
             inputCandidates: totalPairs,
@@ -286,57 +318,7 @@ public final class HierarchicalProcessor: Sendable {
         return (candidates, statistics)
     }
     
-    /// Stage 2: Medium-cost hash-based similarity
-    private func stage2MediumFilter(
-        candidates: [(CodeElement, CodeElement)],
-        threshold: Double,
-        stageStartTime: Double
-    ) async throws -> (candidates: [(CodeElement, CodeElement)], statistics: StageStatistics) {
-        
-        reportProgress(stage: 2, stageName: "Medium Filter", elementsProcessed: 0, totalElements: candidates.count, candidatesFound: 0, reductionRatio: 0.0)
-        
-        var filteredCandidates: [(CodeElement, CodeElement)] = []
-        
-        for (index, (element1, element2)) in candidates.enumerated() {
-            // Use vectorized similarity check with medium threshold
-            let fingerprint1 = createFingerprint(from: element1.treeNode)
-            let fingerprint2 = createFingerprint(from: element2.treeNode)
-            
-            // Calculate hash-based similarity
-            let hashSimilarity = calculateHashSimilarity(fingerprint1, fingerprint2)
-            
-            if hashSimilarity >= threshold {
-                filteredCandidates.append((element1, element2))
-                
-                // Check max candidates limit (0 means no limit)
-                if configuration.maxCandidatesPerStage > 0 && filteredCandidates.count >= configuration.maxCandidatesPerStage {
-                    break
-                }
-            }
-            
-            // Report progress periodically
-            if index % 1000 == 0 {
-                let reductionRatio = candidates.count > 0 ? Double(candidates.count - filteredCandidates.count) / Double(candidates.count) : 0.0
-                reportProgress(stage: 2, stageName: "Medium Filter", elementsProcessed: index, totalElements: candidates.count, candidatesFound: filteredCandidates.count, reductionRatio: reductionRatio)
-            }
-        }
-        
-        let endTime = CFAbsoluteTimeGetCurrent()
-        let processingTime = endTime - stageStartTime
-        let finalReductionRatio = candidates.count > 0 ? Double(candidates.count - filteredCandidates.count) / Double(candidates.count) : 0.0
-        
-        reportProgress(stage: 2, stageName: "Medium Filter", elementsProcessed: candidates.count, totalElements: candidates.count, candidatesFound: filteredCandidates.count, reductionRatio: finalReductionRatio)
-        
-        let statistics = StageStatistics(
-            stage: 2,
-            name: "Medium Filter",
-            processingTime: processingTime,
-            inputCandidates: candidates.count,
-            outputCandidates: filteredCandidates.count
-        )
-        
-        return (filteredCandidates, statistics)
-    }
+
     
     /// Stage 2: Direct APTED calculation (simplified hierarchical processing)
     private func stage2DirectAPTEDCalculation(
@@ -345,7 +327,7 @@ public final class HierarchicalProcessor: Sendable {
         stageStartTime: Double
     ) async throws -> (results: [(CodeElement, CodeElement, Double)], statistics: StageStatistics) {
         
-        reportProgress(stage: 2, stageName: "Direct APTED", elementsProcessed: 0, totalElements: candidates.count, candidatesFound: 0, reductionRatio: 0.0)
+        reportProgress(stage: 3, stageName: "Direct APTED", elementsProcessed: 0, totalElements: candidates.count, candidatesFound: 0, reductionRatio: 0.0)
         
         var results: [(CodeElement, CodeElement, Double)] = []
         
@@ -362,7 +344,7 @@ public final class HierarchicalProcessor: Sendable {
             // Report progress periodically
             if index % 100 == 0 {
                 let reductionRatio = candidates.count > 0 ? Double(candidates.count - results.count) / Double(candidates.count) : 0.0
-                reportProgress(stage: 2, stageName: "Direct APTED", elementsProcessed: index, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: reductionRatio)
+                reportProgress(stage: 3, stageName: "Direct APTED", elementsProcessed: index, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: reductionRatio)
             }
         }
         
@@ -370,10 +352,10 @@ public final class HierarchicalProcessor: Sendable {
         let processingTime = endTime - stageStartTime
         let finalReductionRatio = candidates.count > 0 ? Double(candidates.count - results.count) / Double(candidates.count) : 0.0
         
-        reportProgress(stage: 2, stageName: "Direct APTED", elementsProcessed: candidates.count, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: finalReductionRatio)
+        reportProgress(stage: 3, stageName: "Direct APTED", elementsProcessed: candidates.count, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: finalReductionRatio)
         
         let statistics = StageStatistics(
-            stage: 2,
+            stage: 3,
             name: "Direct APTED",
             processingTime: processingTime,
             inputCandidates: candidates.count,
@@ -383,50 +365,7 @@ public final class HierarchicalProcessor: Sendable {
         return (results, statistics)
     }
     
-    /// Stage 3: Full APTED calculation for final candidates
-    private func stage3PreciseCalculation(
-        candidates: [(CodeElement, CodeElement)],
-        threshold: Double,
-        stageStartTime: Double
-    ) async throws -> (results: [(CodeElement, CodeElement, Double)], statistics: StageStatistics) {
-        
-        reportProgress(stage: 3, stageName: "Precise Calculation", elementsProcessed: 0, totalElements: candidates.count, candidatesFound: 0, reductionRatio: 0.0)
-        
-        var results: [(CodeElement, CodeElement, Double)] = []
-        
-        for (index, (element1, element2)) in candidates.enumerated() {
-            // Calculate full APTED similarity
-            let similarity = try calculatePreciseSimilarity(element1, element2)
-            
-            // Calculate similarity and compare with threshold
-            
-            if similarity >= threshold {
-                results.append((element1, element2, similarity))
-            }
-            
-            // Report progress periodically
-            if index % 100 == 0 {
-                let reductionRatio = candidates.count > 0 ? Double(candidates.count - results.count) / Double(candidates.count) : 0.0
-                reportProgress(stage: 3, stageName: "Precise Calculation", elementsProcessed: index, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: reductionRatio)
-            }
-        }
-        
-        let endTime = CFAbsoluteTimeGetCurrent()
-        let processingTime = endTime - stageStartTime
-        let finalReductionRatio = candidates.count > 0 ? Double(candidates.count - results.count) / Double(candidates.count) : 0.0
-        
-        reportProgress(stage: 3, stageName: "Precise Calculation", elementsProcessed: candidates.count, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: finalReductionRatio)
-        
-        let statistics = StageStatistics(
-            stage: 3,
-            name: "Precise Calculation",
-            processingTime: processingTime,
-            inputCandidates: candidates.count,
-            outputCandidates: results.count
-        )
-        
-        return (results, statistics)
-    }
+
     
     // MARK: - Helper Methods
     
@@ -480,33 +419,9 @@ public final class HierarchicalProcessor: Sendable {
         )
     }
     
-    /// Calculate quick structural similarity between fingerprints
-    private func calculateQuickStructuralSimilarity(_ fp1: ASTNodeFingerprint, _ fp2: ASTNodeFingerprint) -> Double {
-        // Simple Jaccard similarity based on node types
-        let set1 = Set(fp1.nodeTypeCounts.keys)
-        let set2 = Set(fp2.nodeTypeCounts.keys)
-        
-        let intersection = set1.intersection(set2).count
-        let union = set1.union(set2).count
-        
-        return union > 0 ? Double(intersection) / Double(union) : 0.0
-    }
+
     
-    /// Calculate hash-based similarity
-    private func calculateHashSimilarity(_ fp1: ASTNodeFingerprint, _ fp2: ASTNodeFingerprint) -> Double {
-        // Use multiple hash comparison methods
-        let hashes1 = fp1.fastHashValues(hashCount: 8)
-        let hashes2 = fp2.fastHashValues(hashCount: 8)
-        
-        var matches = 0
-        for i in 0..<min(hashes1.count, hashes2.count) {
-            if hashes1[i] == hashes2[i] {
-                matches += 1
-            }
-        }
-        
-        return Double(matches) / Double(max(hashes1.count, hashes2.count))
-    }
+
     
     /// Calculate similarity using the same method as standard processing (VectorizedPrefilteringEngine)
     private func calculatePreciseSimilarity(_ element1: CodeElement, _ element2: CodeElement) throws -> Double {
