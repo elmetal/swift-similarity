@@ -69,9 +69,10 @@ public class SimilarityCalculator {
         // Calculate raw edit distance
         let editDistance = apted.editDistance(between: tree1, and: tree2)
         
-        // Normalize to similarity score (0.0-1.0)
+        // TSED normalization (arXiv:2404.08817): max(1 - δ / MaxNodes(G1, G2), 0).
+        // The ramp keeps the score in [0, 1] when operation costs exceed 1.
         let maxPossibleDistance = Double(max(countNodes(tree1), countNodes(tree2)))
-        let similarityScore = maxPossibleDistance > 0 ? 1.0 - (editDistance / maxPossibleDistance) : 1.0
+        let similarityScore = maxPossibleDistance > 0 ? max(1.0 - (editDistance / maxPossibleDistance), 0.0) : 1.0
         
         // Determine if trees are similar
         let areSimilar = similarityScore >= configuration.similarityThreshold
