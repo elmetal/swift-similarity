@@ -104,3 +104,15 @@ func testMetadata() {
     #expect(result.metadata["tree2_node_count"] as? Int == 1)
     #expect(result.metadata["threshold"] as? Double == 0.8)
 } 
+@Test("TSED score is clamped at zero")
+func testTSEDRampClamp() {
+    let tree1 = SimpleTreeNode(label: "A")
+    let tree2 = SimpleTreeNode(label: "B")
+    
+    let configuration = SimilarityCalculator.Configuration(
+        aptedCosts: APTED.OperationCosts(insertion: 3.0, deletion: 3.0, substitution: 3.0)
+    )
+    let result = SimilarityCalculator(configuration: configuration).calculateSimilarity(between: tree1, and: tree2)
+    #expect(result.editDistance == 3.0)
+    #expect(result.similarityScore == 0.0)
+}
