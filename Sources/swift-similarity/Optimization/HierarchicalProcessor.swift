@@ -230,7 +230,9 @@ public final class HierarchicalProcessor: Sendable {
         // Stage 2: Ultra-fast fingerprint-only comparison
         let stage1Results = try await stage1QuickFilter(
             elements: sampledElements,
-            threshold: threshold + configuration.quickStageOffset,
+            // The stage 1 filter is an exact TSED upper bound, so it must use the target threshold:
+            // a stricter threshold would drop pairs that the final stage would accept.
+            threshold: threshold,
             stageStartTime: CFAbsoluteTimeGetCurrent()
         )
         statistics.append(stage1Results.statistics)
@@ -271,23 +273,24 @@ public final class HierarchicalProcessor: Sendable {
         var candidates: [(CodeElement, CodeElement)] = []
         let totalPairs = elements.count * (elements.count - 1) / 2
         var processedPairs = 0
+        let fingerprints = elements.map { createFingerprint(from: $0.treeNode) }
         
-        // Use fingerprint-based quick rejection
+        // Reject pairs whose TSED upper bound is below the threshold (no false negatives)
         for i in 0..<elements.count {
             for j in (i+1)..<elements.count {
                 let element1 = elements[i]
                 let element2 = elements[j]
                 
-                // Stage 1: Very permissive filtering - pass almost all pairs to Stage 2
-                // This ensures hierarchical processing finds the same pairs as standard processing
+                processedPairs += 1
+                guard fingerprints[i].tsedUpperBound(to: fingerprints[j]) >= threshold else {
+                    continue
+                }
                 candidates.append((element1, element2))
                 
                 // Check max candidates limit (0 means no limit)
                 if configuration.maxCandidatesPerStage > 0 && candidates.count >= configuration.maxCandidatesPerStage {
                     break
                 }
-                
-                processedPairs += 1
                 
                 // Report progress periodically
                 if processedPairs % 10000 == 0 {
@@ -425,11 +428,10 @@ public final class HierarchicalProcessor: Sendable {
     
     /// Calculate similarity using the same method as standard processing (VectorizedPrefilteringEngine)
     private func calculatePreciseSimilarity(_ element1: CodeElement, _ element2: CodeElement) throws -> Double {
-        // Use the same fingerprint-based similarity calculation as VectorizedPrefilteringEngine
-        let fingerprint1 = createFingerprint(from: element1.treeNode)
-        let fingerprint2 = createFingerprint(from: element2.treeNode)
-        
-        return fingerprint1.similarity(to: fingerprint2)
+        // TSED: tree edit distance normalized by the larger tree size
+        return SimilarityCalculator()
+            .calculateSimilarity(between: element1.treeNode, and: element2.treeNode)
+            .similarityScore
     }
     
     /// Report processing progress
