@@ -207,21 +207,21 @@ public class PerformanceOptimizedCalculator {
         threshold: Double = 0.7
     ) async -> (similarPairs: [(CodeElement, CodeElement, Double)], statistics: PerformanceStatistics) {
         
-        let overallStartTime = CFAbsoluteTimeGetCurrent()
+        let overallStartTime = ProcessInfo.processInfo.systemUptime
         
         // Step 1: Prefiltering to find candidate pairs
         let (candidates, prefilteringStats) = prefilteringEngine.findCandidatePairs(elements: elements)
         
         // Step 2: Parallel similarity calculation
-        let parallelStartTime = CFAbsoluteTimeGetCurrent()
+        let parallelStartTime = ProcessInfo.processInfo.systemUptime
         let similarPairs = await calculateSimilarityParallel(
             elements: elements,
             candidates: candidates,
             threshold: threshold
         )
-        let parallelEndTime = CFAbsoluteTimeGetCurrent()
+        let parallelEndTime = ProcessInfo.processInfo.systemUptime
         
-        let overallEndTime = CFAbsoluteTimeGetCurrent()
+        let overallEndTime = ProcessInfo.processInfo.systemUptime
         
         // Create performance statistics
         let totalTime = overallEndTime - overallStartTime
@@ -273,7 +273,7 @@ public class PerformanceOptimizedCalculator {
         
         let totalCandidates = candidates.count
         var processedCount = 0
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         
         for (i, j) in candidates {
             let element1 = elements[i]
@@ -303,7 +303,7 @@ public class PerformanceOptimizedCalculator {
             if configuration.enableProgressReporting {
                 processedCount += 1
                 if let callback = progressCallback {
-                    let currentTime = CFAbsoluteTimeGetCurrent()
+                    let currentTime = ProcessInfo.processInfo.systemUptime
                     let elapsed = currentTime - startTime
                     let rate = elapsed > 0 ? Double(processedCount) / elapsed : 0
                     let remaining = rate > 0 ? Double(totalCandidates - processedCount) / rate : nil
