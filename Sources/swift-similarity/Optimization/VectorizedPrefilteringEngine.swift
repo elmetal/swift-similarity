@@ -551,30 +551,20 @@ public final class VectorizedPrefilteringEngine: Sendable {
         index2: Int,
         threshold: Double
     ) async -> Double? {
-        // Quick bloom filter precheck
-        let fingerprint1 = createFingerprint(from: element1.treeNode)
-        let fingerprint2 = createFingerprint(from: element2.treeNode)
-        
-        // Fast rejection based on basic criteria
-        guard fingerprint1.mightBeSimilar(to: fingerprint2, sizeRatioThreshold: threshold * 0.5) else {
+        // Exact prefilter: skip pairs whose TSED upper bound (from label histograms) is below
+        // the threshold. Unlike heuristic filters this never rejects a pair that would match.
+        let fingerprint1 = matrix.fingerprints[index1]
+        let fingerprint2 = matrix.fingerprints[index2]
+        guard fingerprint1.tsedUpperBound(to: fingerprint2) >= threshold else {
             return nil
         }
         
-        // Use precomputed hash values for bloom filter check
-        let hashes1 = matrix.getHashValues(for: index1)
-        let hashes2 = matrix.getHashValues(for: index2)
+        // TSED: tree edit distance normalized by the larger tree size
+        let similarity = SimilarityCalculator()
+            .calculateSimilarity(between: element1.treeNode, and: element2.treeNode)
+            .similarityScore
         
-        // Vectorized hash similarity calculation
-        let hashSimilarity = calculateVectorizedHashSimilarity(hashes1: hashes1, hashes2: hashes2)
-        
-        guard hashSimilarity >= threshold * 0.3 else {
-            return nil
-        }
-        
-        // If passes all prefilters, calculate actual similarity
-        let actualSimilarity = fingerprint1.similarity(to: fingerprint2)
-        
-        return actualSimilarity >= threshold ? actualSimilarity : nil
+        return similarity >= threshold ? similarity : nil
     }
     
     /// Calculates hash similarity using vectorized operations

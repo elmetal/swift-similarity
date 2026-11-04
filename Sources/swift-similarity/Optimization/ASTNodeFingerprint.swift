@@ -64,7 +64,47 @@ public struct ASTNodeFingerprint: Hashable, Sendable {
         guard maxPossibleDistance > 0 else { return 1.0 }
         return max(0.0, 1.0 - (distance / maxPossibleDistance))
     }
-    
+
+    // MARK: - Exact TSED bounds
+
+    /// Lower bound of the tree edit distance from this tree to `other`, derived from label histograms.
+    ///
+    /// `nodeTypeCounts` must be keyed by node label (as built from `TreeNode.label`).
+    /// Labels that occur more often in this tree (`excessSelf` nodes in total) must be deleted or
+    /// renamed, and labels that occur more often in `other` (`excessOther`) must be inserted or
+    /// renamed; one rename can fix one of each. Minimizing over the number of renames gives a bound
+    /// that is never larger than the true distance.
+    public func treeEditDistanceLowerBound(to other: ASTNodeFingerprint, costs: APTED.OperationCosts = APTED.OperationCosts()) -> Double {
+        var excessSelf = 0
+        var excessOther = 0
+        for (label, count) in nodeTypeCounts {
+            let otherCount = other.nodeTypeCounts[label] ?? 0
+            if count > otherCount { excessSelf += count - otherCount }
+        }
+        for (label, count) in other.nodeTypeCounts {
+            let selfCount = nodeTypeCounts[label] ?? 0
+            if count > selfCount { excessOther += count - selfCount }
+        }
+
+        // Cost is linear in the number of renames, so the minimum is at one of the endpoints.
+        let noRenames = Double(excessSelf) * costs.deletion + Double(excessOther) * costs.insertion
+        let renames = min(excessSelf, excessOther)
+        let maxRenames = Double(renames) * costs.substitution
+            + Double(excessSelf - renames) * costs.deletion
+            + Double(excessOther - renames) * costs.insertion
+        return min(noRenames, maxRenames)
+    }
+
+    /// Upper bound of the TSED similarity between the trees, `max(1 - δ_lower / MaxNodes, 0)`.
+    ///
+    /// Pairs whose upper bound is below the threshold can be skipped without computing the tree
+    /// edit distance and without any false negatives.
+    public func tsedUpperBound(to other: ASTNodeFingerprint, costs: APTED.OperationCosts = APTED.OperationCosts()) -> Double {
+        let maxNodes = Double(max(totalNodes, other.totalNodes))
+        guard maxNodes > 0 else { return 1.0 }
+        return max(1.0 - treeEditDistanceLowerBound(to: other, costs: costs) / maxNodes, 0.0)
+    }
+
     /// Generates hash values for bloom filter insertion/lookup (optimized)
     /// - Parameter hashCount: Number of hash functions to use
     /// - Returns: Array of hash values for bloom filter
