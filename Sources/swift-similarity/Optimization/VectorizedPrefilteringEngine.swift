@@ -551,6 +551,11 @@ public final class VectorizedPrefilteringEngine: Sendable {
         index2: Int,
         threshold: Double
     ) async -> Double? {
+        // A declaration and one nested inside it share code; never report them as similar.
+        guard !element1.isNested(with: element2) else {
+            return nil
+        }
+        
         // Exact prefilter: skip pairs whose TSED upper bound (from label histograms) is below
         // the threshold. Unlike heuristic filters this never rejects a pair that would match.
         let fingerprint1 = matrix.fingerprints[index1]
