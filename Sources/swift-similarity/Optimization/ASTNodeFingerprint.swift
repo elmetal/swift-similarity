@@ -301,13 +301,13 @@ extension ASTNodeFingerprint {
     ///   - hashCount: Number of hash functions to use
     /// - Returns: Dictionary with performance metrics
     public func benchmarkHashPerformance(iterations: Int = 10000, hashCount: Int = 5) -> [String: Any] {
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         
         for _ in 0..<iterations {
             let _ = fastHashValues(hashCount: hashCount)
         }
         
-        let endTime = CFAbsoluteTimeGetCurrent()
+        let endTime = ProcessInfo.processInfo.systemUptime
         let totalTime = endTime - startTime
         let averageTimeMs = (totalTime * 1000.0) / Double(iterations)
         let operationsPerSecond = Double(iterations) / totalTime

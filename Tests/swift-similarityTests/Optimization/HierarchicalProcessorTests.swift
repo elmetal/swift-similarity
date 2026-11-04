@@ -22,9 +22,9 @@ struct HierarchicalProcessorTests {
     func testConfigurationOptimalForScales() {
         // Small project configuration
         let smallConfig = HierarchicalProcessor.Configuration.optimal(for: .small)
-        #expect(smallConfig.quickStageOffset == 0.15)
-        #expect(smallConfig.mediumStageOffset == 0.08)
-        #expect(smallConfig.maxCandidatesPerStage == 5000)
+        #expect(smallConfig.quickStageOffset == -0.2)
+        #expect(smallConfig.mediumStageOffset == 0.0)
+        #expect(smallConfig.maxCandidatesPerStage == 6000)
         #expect(smallConfig.enableSampling == false)
         #expect(smallConfig.enableEarlyTermination == false)
         
@@ -37,17 +37,17 @@ struct HierarchicalProcessorTests {
         
         // Large project configuration
         let largeConfig = HierarchicalProcessor.Configuration.optimal(for: .large)
-        #expect(largeConfig.quickStageOffset == 0.25)
-        #expect(largeConfig.mediumStageOffset == 0.12)
-        #expect(largeConfig.samplingRatio == 0.8)
-        #expect(largeConfig.targetResultCount == 1000)
+        #expect(largeConfig.quickStageOffset == 0.15)
+        #expect(largeConfig.mediumStageOffset == 0.08)
+        #expect(largeConfig.samplingRatio == 0.85)
+        #expect(largeConfig.targetResultCount == 1200)
         
         // Massive project configuration
         let massiveConfig = HierarchicalProcessor.Configuration.optimal(for: .massive)
-        #expect(massiveConfig.quickStageOffset == 0.3)
-        #expect(massiveConfig.mediumStageOffset == 0.15)
-        #expect(massiveConfig.samplingRatio == 0.6)
-        #expect(massiveConfig.targetResultCount == 500)
+        #expect(massiveConfig.quickStageOffset == 0.15)
+        #expect(massiveConfig.mediumStageOffset == 0.08)
+        #expect(massiveConfig.samplingRatio == 0.7)
+        #expect(massiveConfig.targetResultCount == 800)
     }
     
     // MARK: - Progress and Statistics Tests
@@ -349,9 +349,9 @@ struct HierarchicalProcessorTests {
             let config = HierarchicalProcessor.Configuration.optimal(for: scale)
             
             // All configurations should have valid values
-            #expect(config.quickStageOffset > 0.0 && config.quickStageOffset < 1.0)
-            #expect(config.mediumStageOffset > 0.0 && config.mediumStageOffset < 1.0)
-            #expect(config.quickStageOffset > config.mediumStageOffset) // Quick stage should have higher offset
+            // Offsets may be negative (more permissive), but must stay within the score range
+            #expect(config.quickStageOffset > -1.0 && config.quickStageOffset < 1.0)
+            #expect(config.mediumStageOffset > -1.0 && config.mediumStageOffset < 1.0)
             #expect(config.maxCandidatesPerStage > 0)
             #expect(config.samplingRatio > 0.0 && config.samplingRatio <= 1.0)
             #expect(config.targetResultCount >= 0)

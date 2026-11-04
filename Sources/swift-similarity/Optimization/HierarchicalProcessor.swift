@@ -186,7 +186,7 @@ public final class HierarchicalProcessor: Sendable {
         threshold: Double
     ) async throws -> ([(CodeElement, CodeElement, Double)], [StageStatistics]) {
         
-        let stage1StartTime = CFAbsoluteTimeGetCurrent()
+        let stage1StartTime = ProcessInfo.processInfo.systemUptime
         var statistics: [StageStatistics] = []
         
         // Report preparation stage progress
@@ -217,7 +217,7 @@ public final class HierarchicalProcessor: Sendable {
         let _ = sampledElements.count * (sampledElements.count - 1) / 2 // totalPossiblePairs - unused
         
         // Create Stage 1 statistics
-        let stage1EndTime = CFAbsoluteTimeGetCurrent()
+        let stage1EndTime = ProcessInfo.processInfo.systemUptime
         let stage1Statistics = StageStatistics(
             stage: 1,
             name: "Preparation & Fingerprinting",
@@ -231,7 +231,7 @@ public final class HierarchicalProcessor: Sendable {
         let stage1Results = try await stage1QuickFilter(
             elements: sampledElements,
             threshold: threshold + configuration.quickStageOffset,
-            stageStartTime: CFAbsoluteTimeGetCurrent()
+            stageStartTime: ProcessInfo.processInfo.systemUptime
         )
         statistics.append(stage1Results.statistics)
         
@@ -240,7 +240,7 @@ public final class HierarchicalProcessor: Sendable {
             let finalResults = try await stage2DirectAPTEDCalculation(
                 candidates: stage1Results.candidates,
                 threshold: threshold,
-                stageStartTime: CFAbsoluteTimeGetCurrent()
+                stageStartTime: ProcessInfo.processInfo.systemUptime
             )
             statistics.append(finalResults.statistics)
             return (finalResults.results, statistics)
@@ -250,7 +250,7 @@ public final class HierarchicalProcessor: Sendable {
         let stage2Results = try await stage2DirectAPTEDCalculation(
             candidates: stage1Results.candidates,
             threshold: threshold,
-            stageStartTime: CFAbsoluteTimeGetCurrent()
+            stageStartTime: ProcessInfo.processInfo.systemUptime
         )
         statistics.append(stage2Results.statistics)
         
@@ -301,7 +301,7 @@ public final class HierarchicalProcessor: Sendable {
             }
         }
         
-        let endTime = CFAbsoluteTimeGetCurrent()
+        let endTime = ProcessInfo.processInfo.systemUptime
         let processingTime = endTime - stageStartTime
         let finalReductionRatio = totalPairs > 0 ? Double(totalPairs - candidates.count) / Double(totalPairs) : 0.0
         
@@ -348,7 +348,7 @@ public final class HierarchicalProcessor: Sendable {
             }
         }
         
-        let endTime = CFAbsoluteTimeGetCurrent()
+        let endTime = ProcessInfo.processInfo.systemUptime
         let processingTime = endTime - stageStartTime
         let finalReductionRatio = candidates.count > 0 ? Double(candidates.count - results.count) / Double(candidates.count) : 0.0
         
