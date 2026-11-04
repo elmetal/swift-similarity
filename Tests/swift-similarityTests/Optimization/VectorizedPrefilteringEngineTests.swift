@@ -91,9 +91,9 @@ func testVectorizedPrefilteringEngineParallelPerformance() async throws {
     )
     let conservativeEngine = VectorizedPrefilteringEngine(configuration: conservativeConfig)
     
-    let conservativeStart = CFAbsoluteTimeGetCurrent()
+    let conservativeStart = ProcessInfo.processInfo.systemUptime
     let conservativeCandidates = try await conservativeEngine.findCandidates(elements: elements, threshold: 0.3)
-    let conservativeTime = CFAbsoluteTimeGetCurrent() - conservativeStart
+    let conservativeTime = ProcessInfo.processInfo.systemUptime - conservativeStart
     
     // Test aggressive (maximum parallelism)
     let aggressiveConfig = VectorizedPrefilteringEngine.Configuration(
@@ -102,9 +102,9 @@ func testVectorizedPrefilteringEngineParallelPerformance() async throws {
     )
     let aggressiveEngine = VectorizedPrefilteringEngine(configuration: aggressiveConfig)
     
-    let aggressiveStart = CFAbsoluteTimeGetCurrent()
+    let aggressiveStart = ProcessInfo.processInfo.systemUptime
     let aggressiveCandidates = try await aggressiveEngine.findCandidates(elements: elements, threshold: 0.3)
-    let aggressiveTime = CFAbsoluteTimeGetCurrent() - aggressiveStart
+    let aggressiveTime = ProcessInfo.processInfo.systemUptime - aggressiveStart
     
     // Both should find similar number of candidates
     let candidateDifference = abs(conservativeCandidates.count - aggressiveCandidates.count)
@@ -166,9 +166,9 @@ func testVectorizedPrefilteringEngineLargeDatasetHandling() async throws {
     )
     let engine = VectorizedPrefilteringEngine(configuration: config)
     
-    let startTime = CFAbsoluteTimeGetCurrent()
+    let startTime = ProcessInfo.processInfo.systemUptime
     let candidates = try await engine.findCandidates(elements: largeElements, threshold: 0.4)
-    let processingTime = CFAbsoluteTimeGetCurrent() - startTime
+    let processingTime = ProcessInfo.processInfo.systemUptime - startTime
     
     // Should handle large datasets efficiently
     #expect(processingTime < 10.0) // Should complete in reasonable time
@@ -285,9 +285,9 @@ func testVectorizedPrefilteringEnginePerformanceBenchmarking() async throws {
             configuration: .optimizedFor(elementCount: size)
         )
         
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         let candidates = try await engine.findCandidates(elements: elements, threshold: 0.3)
-        let processingTime = CFAbsoluteTimeGetCurrent() - startTime
+        let processingTime = ProcessInfo.processInfo.systemUptime - startTime
         
         results["size_\(size)_time"] = processingTime
         results["size_\(size)_candidates"] = Double(candidates.count)
