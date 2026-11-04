@@ -10,6 +10,19 @@ struct OutputFormatter {
     let advanced: Bool
     let printCodePreviews: Bool
     
+    /// Computes the additional metrics for a pair when `--advanced` is set.
+    /// They are reported alongside the TSED score and do not affect which pairs are found.
+    private func advancedMetrics(for pair: (CodeElement, CodeElement, Double)) -> AdvancedMetrics? {
+        guard advanced else { return nil }
+        let result = AdvancedSimilarityMetrics().calculateAdvancedSimilarity(between: pair.0.treeNode, and: pair.1.treeNode)
+        return AdvancedMetrics(
+            structural: result.structuralSimilarity * 100,
+            label: result.labelSimilarity * 100,
+            depth: result.depthSimilarity * 100,
+            combined: result.overallSimilarity * 100
+        )
+    }
+    
     /// Outputs results in text format
     func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) {
         let output = generateTextOutput(similarPairs: similarPairs)
@@ -53,7 +66,8 @@ struct OutputFormatter {
                         endLine: pair.1.endLine
                     ),
                     codePreview1: printCodePreviews ? pair.0.codePreview : "",
-                    codePreview2: printCodePreviews ? pair.1.codePreview : ""
+                    codePreview2: printCodePreviews ? pair.1.codePreview : "",
+                    advancedMetrics: advancedMetrics(for: pair)
                 )
             }
         )
@@ -91,6 +105,13 @@ struct OutputFormatter {
                 output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(pairElementType): \(pair.0.name)\n"
                 output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
                 output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
+                
+                if let metrics = advancedMetrics(for: pair) {
+                    output += "   Metrics: structural \(String(format: "%.2f%%", metrics.structural))"
+                    output += ", label \(String(format: "%.2f%%", metrics.label))"
+                    output += ", depth \(String(format: "%.2f%%", metrics.depth))"
+                    output += ", combined \(String(format: "%.2f%%", metrics.combined))\n"
+                }
                 
                 if printCodePreviews {
                     output += "   Code Preview 1:\n"

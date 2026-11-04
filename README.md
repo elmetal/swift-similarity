@@ -34,7 +34,7 @@ swift run swift-similarity-cli scan Sources/ --progress --stats
 # Include code previews in output
 swift run swift-similarity-cli scan Sources/ --print
 
-# Use advanced similarity metrics
+# Also report structural, label and depth similarity for each pair
 swift run swift-similarity-cli scan Sources/ --advanced
 ```
 

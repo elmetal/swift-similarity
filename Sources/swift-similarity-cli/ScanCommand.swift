@@ -19,7 +19,7 @@ struct ScanCommand: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0)")
     var threshold: Double = 0.8
     
-    @Flag(name: .shortAndLong, help: "Use advanced similarity metrics")
+    @Flag(name: .shortAndLong, help: "Also report structural, label and depth similarity for each pair (does not change which pairs are found)")
     var advanced: Bool = false
     
     @Option(name: .shortAndLong, help: "Output format (text/json)")

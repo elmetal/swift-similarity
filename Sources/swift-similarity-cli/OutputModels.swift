@@ -19,6 +19,20 @@ struct SimilarPair: Codable {
     let location2: CodeElementLocation
     let codePreview1: String
     let codePreview2: String
+    /// Additional metrics, present only with `--advanced`
+    let advancedMetrics: AdvancedMetrics?
+}
+
+/// Additional similarity metrics reported with `--advanced` (percentages)
+struct AdvancedMetrics: Codable {
+    /// Jaccard similarity of node shapes (number of children per node)
+    let structural: Double
+    /// Jaccard similarity of node labels
+    let label: Double
+    /// Ratio of tree depths
+    let depth: Double
+    /// Weighted combination of the three metrics above
+    let combined: Double
 }
 
 /// Scan result for JSON output
