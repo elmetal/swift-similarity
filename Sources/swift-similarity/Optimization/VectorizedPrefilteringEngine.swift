@@ -313,7 +313,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
     ) async throws -> [(CodeElement, CodeElement, Double)] {
         guard elements.count >= 2 else { return [] }
         
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         
         // Extract fingerprints with progress reporting (this is the heavy operation)
         var fingerprints: [ASTNodeFingerprint] = []
@@ -626,7 +626,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
     ) async {
         guard let progressCallback = configuration.progressCallback else { return }
         
-        let currentTime = CFAbsoluteTimeGetCurrent()
+        let currentTime = ProcessInfo.processInfo.systemUptime
         let elapsedTime = currentTime - startTime
         
         let processingRate = elapsedTime > 0 ? Double(blocksProcessed) / elapsedTime : nil

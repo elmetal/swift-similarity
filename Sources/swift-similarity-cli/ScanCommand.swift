@@ -154,7 +154,7 @@ struct ScanCommand: AsyncParsableCommand {
         optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         
         // Create vectorized prefiltering engine configuration
         let progressCallback: (@Sendable (VectorizedPrefilteringEngine.VectorizedProgress) -> Void)?
@@ -231,7 +231,7 @@ struct ScanCommand: AsyncParsableCommand {
         let vectorizedEngine = VectorizedPrefilteringEngine(configuration: vectorizedConfig)
         let candidates = try await vectorizedEngine.findCandidates(elements: elements, threshold: threshold)
         
-        let endTime = CFAbsoluteTimeGetCurrent()
+        let endTime = ProcessInfo.processInfo.systemUptime
         let totalTime = endTime - startTime
         
         // Create performance statistics for compatibility
@@ -265,7 +265,7 @@ struct ScanCommand: AsyncParsableCommand {
         optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         
         // Determine project scale and configuration
         let scale = VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.from(elementCount: elements.count)
@@ -330,7 +330,7 @@ struct ScanCommand: AsyncParsableCommand {
         // Process through hierarchical pipeline
         let (results, stageStatistics) = try await processor.process(elements: elements, threshold: threshold)
         
-        let endTime = CFAbsoluteTimeGetCurrent()
+        let endTime = ProcessInfo.processInfo.systemUptime
         let totalTime = endTime - startTime
         
         // Convert results to expected format

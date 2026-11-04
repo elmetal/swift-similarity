@@ -189,16 +189,16 @@ func testBitOperationsPerformance() {
     }
     
     // Measure insertion performance
-    let startTime = CFAbsoluteTimeGetCurrent()
+    let startTime = ProcessInfo.processInfo.systemUptime
     
     for fingerprint in fingerprints {
         filter.add(fingerprint)
     }
     
-    let insertionTime = CFAbsoluteTimeGetCurrent() - startTime
+    let insertionTime = ProcessInfo.processInfo.systemUptime - startTime
     
     // Measure lookup performance
-    let lookupStartTime = CFAbsoluteTimeGetCurrent()
+    let lookupStartTime = ProcessInfo.processInfo.systemUptime
     
     var containsCount = 0
     for fingerprint in fingerprints {
@@ -207,7 +207,7 @@ func testBitOperationsPerformance() {
         }
     }
     
-    let lookupTime = CFAbsoluteTimeGetCurrent() - lookupStartTime
+    let lookupTime = ProcessInfo.processInfo.systemUptime - lookupStartTime
     
     // All fingerprints should be found (no false negatives)
     #expect(containsCount == fingerprints.count)
