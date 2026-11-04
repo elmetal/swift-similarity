@@ -122,6 +122,7 @@ private class CodeElementVisitor: SyntaxVisitor {
     let sourceContent: String
     let sourceFile: SourceFileSyntax
     let configuration: CodeElementExtractor.Configuration
+    let locationConverter: SourceLocationConverter
     var extractedElements: [CodeElement] = []
     
     init(filePath: String, sourceLines: [String], sourceContent: String, sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
@@ -130,6 +131,7 @@ private class CodeElementVisitor: SyntaxVisitor {
         self.sourceContent = sourceContent
         self.sourceFile = sourceFile
         self.configuration = configuration
+        self.locationConverter = SourceLocationConverter(fileName: filePath, tree: sourceFile)
         super.init(viewMode: .sourceAccurate)
     }
     
@@ -216,25 +218,14 @@ private class CodeElementVisitor: SyntaxVisitor {
         return nil
     }
     
-    // Calculate line numbers for a syntax node by manually counting newlines
+    // Calculate 1-indexed line numbers for a syntax node, excluding leading and trailing trivia.
+    // SourceLocationConverter works on UTF-8 offsets, so multi-byte characters
+    // (e.g. Japanese comments) before the node do not shift the result.
     private func calculateLineNumbers(for node: some SyntaxProtocol) -> (startLine: Int, endLine: Int) {
-        let startLine = lineNumber(for: node.positionAfterSkippingLeadingTrivia)
-        let endLine = lineNumber(for: node.endPosition)
+        let startLine = node.startLocation(converter: locationConverter).line
+        let endLine = node.endLocation(converter: locationConverter).line
         
         return (startLine: startLine, endLine: endLine)
-    }
-    
-    // Convert absolute position to line number (1-indexed) by counting newlines
-    private func lineNumber(for position: AbsolutePosition) -> Int {
-        let utf8Offset = position.utf8Offset
-        guard utf8Offset <= sourceContent.utf8.count else {
-            return sourceLines.count
-        }
-        
-        // Count newlines up to the position in the source content
-        let prefix = String(sourceContent.prefix(utf8Offset))
-        let newlineCount = prefix.filter { $0.isNewline }.count
-        return newlineCount + 1
     }
     
     // Extract code preview from source lines

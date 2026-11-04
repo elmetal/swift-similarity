@@ -206,3 +206,35 @@ func testCodePreviewAccuracy() throws {
     #expect(structElement?.codePreview.contains("struct SimpleStruct") == true)
     #expect(structElement?.codePreview.contains("let value: Int") == true)
 }
+@Test("Line numbers are correct after multi-byte characters")
+func testLineNumbersWithMultiByteCharacters() throws {
+    let swiftCode = """
+    // 日本語のコメント: マルチバイト文字を含む行
+    // さらにもう一行、全角文字だけで書かれたコメントです
+    struct First {
+        let value: Int
+    }
+
+    /// 説明: 二つ目の関数
+    func second() {
+        print("こんにちは")
+    }
+    """
+    
+    let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("MultiByteLineTest-\(UUID().uuidString).swift")
+    try swiftCode.write(to: tempURL, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: tempURL) }
+    
+    let elements = try CodeElementExtractor().extractElements(from: tempURL.path)
+    
+    let first = elements.first { $0.name == "First" }
+    #expect(first?.startLine == 3)
+    #expect(first?.endLine == 5)
+    #expect(first?.codePreview.hasPrefix("struct First") == true)
+    
+    let second = elements.first { $0.name == "second" }
+    #expect(second?.startLine == 8)
+    #expect(second?.endLine == 10)
+    #expect(second?.codePreview.hasPrefix("func second()") == true)
+}
