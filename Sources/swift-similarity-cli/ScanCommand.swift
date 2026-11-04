@@ -319,9 +319,9 @@ struct ScanCommand: AsyncParsableCommand {
         
         // Display hierarchical processing info
         print("   Project scale: \(scale.rawValue)")
-        print("   Quick stage offset: +\(String(format: "%.2f", hierarchicalConfig.quickStageOffset))")
-        print("   Medium stage offset: +\(String(format: "%.2f", hierarchicalConfig.mediumStageOffset))")
-        print("   Max candidates per stage: \(hierarchicalConfig.maxCandidatesPerStage)")
+        if hierarchicalConfig.maxCandidatesPerStage > 0 {
+            print("   Max candidates per stage: \(hierarchicalConfig.maxCandidatesPerStage)")
+        }
         if hierarchicalConfig.enableSampling {
             print("   Sampling: \(String(format: "%.1f", hierarchicalConfig.samplingRatio * 100))%")
         }

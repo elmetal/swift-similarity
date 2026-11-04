@@ -11,8 +11,8 @@ struct HierarchicalProcessorTests {
         
         #expect(config.quickStageOffset == 0.2)
         #expect(config.mediumStageOffset == 0.1)
-        #expect(config.maxCandidatesPerStage == 10000)
-        #expect(config.enableSampling == true)
+        #expect(config.maxCandidatesPerStage == 0)
+        #expect(config.enableSampling == false)
         #expect(config.samplingRatio == 0.8)
         #expect(config.enableEarlyTermination == true)
         #expect(config.targetResultCount == 1000)
@@ -24,29 +24,26 @@ struct HierarchicalProcessorTests {
         let smallConfig = HierarchicalProcessor.Configuration.optimal(for: .small)
         #expect(smallConfig.quickStageOffset == -0.2)
         #expect(smallConfig.mediumStageOffset == 0.0)
-        #expect(smallConfig.maxCandidatesPerStage == 6000)
+        #expect(smallConfig.maxCandidatesPerStage == 0)
         #expect(smallConfig.enableSampling == false)
         #expect(smallConfig.enableEarlyTermination == false)
         
         // Medium project configuration
         let mediumConfig = HierarchicalProcessor.Configuration.optimal(for: .medium)
         #expect(mediumConfig.quickStageOffset == 0.2)
-        #expect(mediumConfig.enableSampling == true)
-        #expect(mediumConfig.samplingRatio == 0.9)
+        #expect(mediumConfig.enableSampling == false)
         #expect(mediumConfig.targetResultCount == 2000)
         
         // Large project configuration
         let largeConfig = HierarchicalProcessor.Configuration.optimal(for: .large)
         #expect(largeConfig.quickStageOffset == 0.15)
         #expect(largeConfig.mediumStageOffset == 0.08)
-        #expect(largeConfig.samplingRatio == 0.85)
         #expect(largeConfig.targetResultCount == 1200)
         
         // Massive project configuration
         let massiveConfig = HierarchicalProcessor.Configuration.optimal(for: .massive)
         #expect(massiveConfig.quickStageOffset == 0.15)
         #expect(massiveConfig.mediumStageOffset == 0.08)
-        #expect(massiveConfig.samplingRatio == 0.7)
         #expect(massiveConfig.targetResultCount == 800)
     }
     
@@ -352,9 +349,50 @@ struct HierarchicalProcessorTests {
             // Offsets may be negative (more permissive), but must stay within the score range
             #expect(config.quickStageOffset > -1.0 && config.quickStageOffset < 1.0)
             #expect(config.mediumStageOffset > -1.0 && config.mediumStageOffset < 1.0)
-            #expect(config.maxCandidatesPerStage > 0)
+            // Presets must never drop pairs
+            #expect(config.maxCandidatesPerStage == 0)
+            #expect(config.enableSampling == false)
             #expect(config.samplingRatio > 0.0 && config.samplingRatio <= 1.0)
             #expect(config.targetResultCount >= 0)
         }
     }
 } 
+// MARK: - No dropped pairs
+
+private func distinctElement(_ index: Int, label: String) -> CodeElement {
+    let tree = SimpleTreeNode(label: label, children: (0..<5).map { _ in SimpleTreeNode(label: "\(label)-child") })
+    return CodeElement(
+        elementType: .function,
+        name: "\(label)-\(index)",
+        signature: "",
+        filePath: "/test/\(index).swift",
+        startLine: 1,
+        endLine: 1,
+        codePreview: "",
+        treeNode: tree
+    )
+}
+
+@Test("Preset configurations find a similar pair enumerated last among many elements", arguments: [
+    VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.medium,
+    .large,
+    .massive,
+])
+func testPresetsDoNotDropPairs(scale: VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale) async throws {
+    // 1200 elements with disjoint labels; only the last two are identical.
+    var elements = (0..<1198).map { distinctElement($0, label: "unique\($0)") }
+    elements.append(distinctElement(1198, label: "dup"))
+    elements.append(distinctElement(1199, label: "dup"))
+    
+    let processor = HierarchicalProcessor(
+        configuration: .optimal(for: scale),
+        vectorizedConfig: nil,
+        progressCallback: nil
+    )
+    let (results, _) = try await processor.process(elements: elements, threshold: 0.9)
+    
+    #expect(results.count == 1)
+    #expect(results.first?.0.name == "dup-1198")
+    #expect(results.first?.1.name == "dup-1199")
+    #expect(results.first?.2 == 1.0)
+}
