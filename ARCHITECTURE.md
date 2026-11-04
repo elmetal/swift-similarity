@@ -51,7 +51,7 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 **ScanCommand**
 - Options: element type (`function` / `struct` / `class` / `enum` / `all`), threshold, output format, output file, code previews, optimization level, thread count, progress, statistics, hierarchical mode
 - Extracts elements, then runs either `VectorizedPrefilteringEngine` or `HierarchicalProcessor`
-- `--advanced` is currently only echoed in the output; it does not change the calculation
+- `--advanced` adds structural / label / depth metrics (`AdvancedSimilarityMetrics`) for each reported pair; pairs are still selected by TSED
 
 **OutputFormatter / OutputModels**
 - Formats results as text or JSON (`ScanResult`, `SimilarPair`, `CodeElementLocation`)
