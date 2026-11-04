@@ -116,3 +116,16 @@ func testTSEDRampClamp() {
     #expect(result.editDistance == 3.0)
     #expect(result.similarityScore == 0.0)
 }
+
+@Test("Thresholded similarity matches the full TSED score")
+func testThresholdedSimilarity() {
+    let tree1 = SimpleTreeNode(label: "a", children: [SimpleTreeNode(label: "b"), SimpleTreeNode(label: "c"), SimpleTreeNode(label: "d")])
+    let tree2 = SimpleTreeNode(label: "a", children: [SimpleTreeNode(label: "b"), SimpleTreeNode(label: "x")])
+    let calculator = SimilarityCalculator()
+    let full = calculator.calculateSimilarity(between: tree1, and: tree2).similarityScore // 1 - 2/4
+    
+    #expect(full == 0.5)
+    #expect(calculator.similarity(between: tree1, and: tree2, atLeast: 0.5) == 0.5)
+    #expect(calculator.similarity(between: tree1, and: tree2, atLeast: 0.3) == 0.5)
+    #expect(calculator.similarity(between: tree1, and: tree2, atLeast: 0.51) == nil)
+}

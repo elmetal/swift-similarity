@@ -50,86 +50,149 @@ public class APTED {
     ///   - tree2: The target tree
     /// - Returns: The minimum cost of transforming `tree1` into `tree2`
     public func editDistance(between tree1: TreeNode, and tree2: TreeNode) -> Double {
-        let t1 = IndexedTree(tree1)
-        let t2 = IndexedTree(tree2)
-        return zhangShasha(t1, t2)
+        // Mirroring both trees (reversing every child list) does not change the distance, but
+        // Zhang–Shasha's cost depends on the orientation: its work is the product of the sums of
+        // keyroot subtree sizes. Run it on whichever orientation is cheaper.
+        let left1 = IndexedTree(tree1, mirrored: false)
+        let left2 = IndexedTree(tree2, mirrored: false)
+        let right1 = IndexedTree(tree1, mirrored: true)
+        let right2 = IndexedTree(tree2, mirrored: true)
+        if right1.keyrootCost * right2.keyrootCost < left1.keyrootCost * left2.keyrootCost {
+            return zhangShasha(right1, right2)
+        }
+        return zhangShasha(left1, left2)
     }
-
+    
+    /// A lower bound of `editDistance(between:and:)` computed in O(|T1|·|T2|) time.
+    ///
+    /// It is the string edit distance between the preorder label sequences, using the same costs.
+    /// Deleting, inserting or renaming a tree node deletes, inserts or substitutes exactly one
+    /// symbol of the preorder sequence (a deleted node's children take its place in order), so
+    /// every tree edit script maps to a string edit script of the same cost.
+    public func lowerBound(between tree1: TreeNode, and tree2: TreeNode) -> Double {
+        var labelIds: [String: Int] = [:]
+        let sequence1 = preorderLabelIds(tree1, &labelIds)
+        let sequence2 = preorderLabelIds(tree2, &labelIds)
+        let del = costs.deletion
+        let ins = costs.insertion
+        let sub = costs.substitution
+        
+        var previous = (0...sequence2.count).map { Double($0) * ins }
+        var current = [Double](repeating: 0, count: sequence2.count + 1)
+        for i in 1...sequence1.count {
+            current[0] = Double(i) * del
+            let symbol = sequence1[i - 1]
+            for j in 1...sequence2.count {
+                let rename = previous[j - 1] + (symbol == sequence2[j - 1] ? 0 : sub)
+                current[j] = min(previous[j] + del, current[j - 1] + ins, rename)
+            }
+            swap(&previous, &current)
+        }
+        return previous[sequence2.count]
+    }
+    
+    private func preorderLabelIds(_ root: TreeNode, _ labelIds: inout [String: Int]) -> [Int] {
+        var result: [Int] = []
+        var stack: [TreeNode] = [root]
+        while let node = stack.popLast() {
+            if let id = labelIds[node.label] {
+                result.append(id)
+            } else {
+                let id = labelIds.count
+                labelIds[node.label] = id
+                result.append(id)
+            }
+            stack.append(contentsOf: node.children.reversed())
+        }
+        return result
+    }
+    
     // MARK: - Zhang–Shasha
-
+    
     private func zhangShasha(_ t1: IndexedTree, _ t2: IndexedTree) -> Double {
         let n = t1.count
         let m = t2.count
         let width = m + 1
-
+        
         // Integer label ids so the inner loop compares Ints, not Strings.
         var labelIds: [String: Int] = [:]
-        let labels1 = t1.labels.map { label -> Int in
-            if let id = labelIds[label] { return id }
-            let id = labelIds.count
-            labelIds[label] = id
-            return id
+        func ids(_ labels: [String]) -> [Int] {
+            labels.map { label in
+                if let id = labelIds[label] { return id }
+                let id = labelIds.count
+                labelIds[label] = id
+                return id
+            }
         }
-        let labels2 = t2.labels.map { label -> Int in
-            if let id = labelIds[label] { return id }
-            let id = labelIds.count
-            labelIds[label] = id
-            return id
-        }
-
+        let labels1 = ids(t1.labels)
+        let labels2 = ids(t2.labels)
+        
         let del = costs.deletion
         let ins = costs.insertion
         let sub = costs.substitution
-
+        
         // treeDist[i * width + j]: distance between subtree rooted at i (in t1) and j (in t2), 1-based postorder.
         var treeDist = [Double](repeating: 0, count: (n + 1) * width)
         // forestDist is reused for every keyroot pair; it is indexed relative to the leftmost leaves.
         var forestDist = [Double](repeating: 0, count: (n + 1) * width)
-
-        for i in t1.keyroots {
-            for j in t2.keyroots {
-                let li = t1.leftmost[i]
-                let lj = t2.leftmost[j]
-                let rows = i - li + 2
-                let cols = j - lj + 2
-
-                // forestDist[x][y] with x in 0..<rows, y in 0..<cols, row stride = width
-                forestDist[0] = 0
-                for x in 1..<rows {
-                    forestDist[x * width] = forestDist[(x - 1) * width] + del
-                }
-                for y in 1..<cols {
-                    forestDist[y] = forestDist[y - 1] + ins
-                }
-
-                for x in 1..<rows {
-                    let i1 = li + x - 1
-                    let li1 = t1.leftmost[i1]
+        
+        // Unsafe buffers avoid bounds checks in the O(n²·depth²) inner loop; all indices stay
+        // within the (n + 1) x (m + 1) tables by construction.
+        labels1.withUnsafeBufferPointer { l1 in
+        labels2.withUnsafeBufferPointer { l2 in
+        t1.leftmost.withUnsafeBufferPointer { lm1 in
+        t2.leftmost.withUnsafeBufferPointer { lm2 in
+        treeDist.withUnsafeMutableBufferPointer { td in
+        forestDist.withUnsafeMutableBufferPointer { fd in
+            for i in t1.keyroots {
+                for j in t2.keyroots {
+                    let li = lm1[i]
+                    let lj = lm2[j]
+                    let rows = i - li + 2
+                    let cols = j - lj + 2
+                    
+                    // fd[x * width + y] with x in 0..<rows, y in 0..<cols
+                    fd[0] = 0
+                    for x in 1..<rows {
+                        fd[x * width] = fd[(x - 1) * width] + del
+                    }
                     for y in 1..<cols {
-                        let j1 = lj + y - 1
-                        let lj1 = t2.leftmost[j1]
-
-                        let deleteCost = forestDist[(x - 1) * width + y] + del
-                        let insertCost = forestDist[x * width + y - 1] + ins
-
-                        let value: Double
-                        if li1 == li && lj1 == lj {
-                            // Both prefixes are whole trees: rename the roots.
-                            let renameCost = labels1[i1 - 1] == labels2[j1 - 1] ? 0 : sub
-                            value = min(deleteCost, insertCost, forestDist[(x - 1) * width + y - 1] + renameCost)
-                            treeDist[i1 * width + j1] = value
-                        } else {
-                            // Match previously computed subtrees.
-                            let px = li1 - li
-                            let py = lj1 - lj
-                            value = min(deleteCost, insertCost, forestDist[px * width + py] + treeDist[i1 * width + j1])
+                        fd[y] = fd[y - 1] + ins
+                    }
+                    
+                    for x in 1..<rows {
+                        let i1 = li + x - 1
+                        let li1 = lm1[i1]
+                        let row = x * width
+                        let previousRow = row - width
+                        let label1 = l1[i1 - 1]
+                        let isTree1 = li1 == li
+                        let prefixRow = (li1 - li) * width
+                        let treeRow = i1 * width
+                        for y in 1..<cols {
+                            let j1 = lj + y - 1
+                            let lj1 = lm2[j1]
+                            
+                            let deleteCost = fd[previousRow + y] + del
+                            let insertCost = fd[row + y - 1] + ins
+                            
+                            let value: Double
+                            if isTree1 && lj1 == lj {
+                                // Both prefixes are whole trees: rename the roots.
+                                let renameCost = label1 == l2[j1 - 1] ? 0 : sub
+                                value = min(deleteCost, insertCost, fd[previousRow + y - 1] + renameCost)
+                                td[treeRow + j1] = value
+                            } else {
+                                // Match previously computed subtrees.
+                                value = min(deleteCost, insertCost, fd[prefixRow + lj1 - lj] + td[treeRow + j1])
+                            }
+                            fd[row + y] = value
                         }
-                        forestDist[x * width + y] = value
                     }
                 }
             }
-        }
-
+        }}}}}}
+        
         return treeDist[n * width + m]
     }
 }
@@ -145,19 +208,27 @@ private struct IndexedTree {
     var leftmost: [Int] = [0]
     /// Keyroots in increasing postorder.
     var keyroots: [Int] = []
-
+    /// Sum of keyroot subtree sizes; Zhang–Shasha's work is proportional to the product of
+    /// this value for both trees.
+    var keyrootCost: Int = 0
+    
     var count: Int { labels.count }
-
-    init(_ root: TreeNode) {
+    
+    /// - Parameters:
+    ///   - root: The tree to index
+    ///   - mirrored: Visit children right-to-left, indexing the mirror image of the tree
+    init(_ root: TreeNode, mirrored: Bool) {
         // Iterative postorder to avoid stack overflow on deep ASTs.
         var stack: [(node: TreeNode, childIndex: Int, leftmost: Int)] = [(root, 0, 0)]
         while !stack.isEmpty {
             let top = stack.count - 1
             let node = stack[top].node
             let childIndex = stack[top].childIndex
-            if childIndex < node.children.count {
+            let childCount = node.children.count
+            if childIndex < childCount {
                 stack[top].childIndex += 1
-                stack.append((node.children[childIndex], 0, 0))
+                let child = node.children[mirrored ? childCount - 1 - childIndex : childIndex]
+                stack.append((child, 0, 0))
                 continue
             }
             let frame = stack.removeLast()
@@ -171,12 +242,13 @@ private struct IndexedTree {
                 stack[parent].leftmost = lml
             }
         }
-
+        
         // Keyroots: for each distinct leftmost leaf, the highest node having it.
         var highest: [Int: Int] = [:]
         for i in 1...count {
             highest[leftmost[i]] = i
         }
         keyroots = highest.values.sorted()
+        keyrootCost = keyroots.reduce(0) { $0 + $1 - leftmost[$1] + 1 }
     }
 }

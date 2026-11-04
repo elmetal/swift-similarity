@@ -353,8 +353,7 @@ public final class HierarchicalProcessor: Sendable {
                     var chunkResults: [(index: Int, result: (CodeElement, CodeElement, Double))] = []
                     for index in start..<end {
                         let (element1, element2) = candidates[index]
-                        let similarity = try self.calculatePreciseSimilarity(element1, element2)
-                        if similarity >= threshold {
+                        if let similarity = self.calculatePreciseSimilarity(element1, element2, threshold: threshold) {
                             chunkResults.append((index, (element1, element2, similarity)))
                         }
                     }
@@ -451,12 +450,11 @@ public final class HierarchicalProcessor: Sendable {
     
 
     
-    /// Calculate similarity using the same method as standard processing (VectorizedPrefilteringEngine)
-    private func calculatePreciseSimilarity(_ element1: CodeElement, _ element2: CodeElement) throws -> Double {
-        // TSED: tree edit distance normalized by the larger tree size
+    /// TSED score of the pair if it reaches `threshold`, using the same method as
+    /// VectorizedPrefilteringEngine (an exact lower bound skips hopeless pairs).
+    private func calculatePreciseSimilarity(_ element1: CodeElement, _ element2: CodeElement, threshold: Double) -> Double? {
         return SimilarityCalculator()
-            .calculateSimilarity(between: element1.treeNode, and: element2.treeNode)
-            .similarityScore
+            .similarity(between: element1.treeNode, and: element2.treeNode, atLeast: threshold)
     }
     
     /// Report processing progress
