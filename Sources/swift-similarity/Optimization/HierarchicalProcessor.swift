@@ -14,9 +14,11 @@ public final class HierarchicalProcessor: Sendable {
         public let quickStageOffset: Double
         /// Stage 2: Medium filtering threshold offset (+0.1 from target)
         public let mediumStageOffset: Double
-        /// Maximum candidates to pass to next stage (0 = unlimited)
+        /// Maximum candidates to pass to next stage (0 = unlimited).
+        /// Lossy: once the limit is reached, the remaining pairs are not compared at all.
         public let maxCandidatesPerStage: Int
-        /// Enable statistical sampling for massive datasets
+        /// Enable statistical sampling for massive datasets.
+        /// Lossy and non-deterministic: a random subset of elements is discarded before comparison.
         public let enableSampling: Bool
         /// Sampling ratio for initial stage (0.0-1.0)
         public let samplingRatio: Double
@@ -28,8 +30,8 @@ public final class HierarchicalProcessor: Sendable {
         public init(
             quickStageOffset: Double = 0.2,
             mediumStageOffset: Double = 0.1,
-            maxCandidatesPerStage: Int = 10000,
-            enableSampling: Bool = true,
+            maxCandidatesPerStage: Int = 0,
+            enableSampling: Bool = false,
             samplingRatio: Double = 0.8,
             enableEarlyTermination: Bool = true,
             targetResultCount: Int = 1000
@@ -43,14 +45,15 @@ public final class HierarchicalProcessor: Sendable {
             self.targetResultCount = targetResultCount
         }
         
-        /// Optimal configuration for different project scales
+        /// Optimal configuration for different project scales.
+        /// None of the presets sample elements or cap candidates, so no similar pair is dropped.
         public static func optimal(for scale: VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale) -> Configuration {
             switch scale {
             case .small:
                 return Configuration(
                     quickStageOffset: -0.2, // More permissive for Stage 1
                     mediumStageOffset: 0.0,  // Use exact threshold for Stage 2
-                    maxCandidatesPerStage: 6000, // Increased to ensure coverage of all legitimate pairs
+                    maxCandidatesPerStage: 0,
                     enableSampling: false,
                     enableEarlyTermination: false
                 )
@@ -58,9 +61,8 @@ public final class HierarchicalProcessor: Sendable {
                 return Configuration(
                     quickStageOffset: 0.2,
                     mediumStageOffset: 0.1,
-                    maxCandidatesPerStage: 8000,
-                    enableSampling: true,
-                    samplingRatio: 0.9,
+                    maxCandidatesPerStage: 0,
+                    enableSampling: false,
                     enableEarlyTermination: true,
                     targetResultCount: 2000
                 )
@@ -68,9 +70,8 @@ public final class HierarchicalProcessor: Sendable {
                 return Configuration(
                     quickStageOffset: 0.15,  // Fixed: 0.7 + 0.15 = 0.85 (reasonable)
                     mediumStageOffset: 0.08,  // Fixed: 0.7 + 0.08 = 0.78 (reasonable)
-                    maxCandidatesPerStage: 12000,  // Increased from 10000
-                    enableSampling: true,
-                    samplingRatio: 0.85,  // Increased from 0.8
+                    maxCandidatesPerStage: 0,
+                    enableSampling: false,
                     enableEarlyTermination: true,
                     targetResultCount: 1200  // Increased from 1000
                 )
@@ -78,9 +79,8 @@ public final class HierarchicalProcessor: Sendable {
                 return Configuration(
                     quickStageOffset: 0.15,  // Fixed: 0.7 + 0.15 = 0.85 (reasonable)
                     mediumStageOffset: 0.08,  // Fixed: 0.7 + 0.08 = 0.78 (reasonable)
-                    maxCandidatesPerStage: 8000,  // Increased from 5000
-                    enableSampling: true,
-                    samplingRatio: 0.7,  // Increased from 0.6 (30% discard instead of 40%)
+                    maxCandidatesPerStage: 0,
+                    enableSampling: false,
                     enableEarlyTermination: true,
                     targetResultCount: 800  // Increased from 500
                 )
