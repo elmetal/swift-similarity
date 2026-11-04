@@ -81,7 +81,7 @@ public class PrefilteringEngine {
     /// - Parameter elements: Array of code elements to analyze
     /// - Returns: Tuple containing candidate pair indices and prefiltering statistics
     public func findCandidatePairs(elements: [CodeElement]) -> (candidates: [(Int, Int)], statistics: PrefilteringStatistics) {
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = ProcessInfo.processInfo.systemUptime
         
         // Extract fingerprints from all elements
         let fingerprints = elements.map { $0.treeNode.extractFingerprint() }
@@ -156,7 +156,7 @@ public class PrefilteringEngine {
             }
         }
         
-        let endTime = CFAbsoluteTimeGetCurrent()
+        let endTime = ProcessInfo.processInfo.systemUptime
         let prefilteringTime = endTime - startTime
         
         // Collect statistics
