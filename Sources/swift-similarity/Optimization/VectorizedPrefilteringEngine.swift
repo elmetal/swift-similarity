@@ -341,7 +341,14 @@ public final class VectorizedPrefilteringEngine: Sendable {
         }
         
         let hashCount = optimizedBloomFilter.hashFunctionCount
-        let blockSize = determineOptimalBlockSize(for: elements.count)
+        // Blocks are scheduled dynamically, but block i also compares against every later block,
+        // so early blocks carry most of the work. Keep at least 4 blocks per worker so that work
+        // spreads across all cores even for small projects.
+        let workerCount = configuration.maxConcurrency > 0
+            ? configuration.maxConcurrency
+            : ProcessInfo.processInfo.processorCount
+        let balancedBlockSize = max(1, (elements.count + workerCount * 4 - 1) / (workerCount * 4))
+        let blockSize = min(determineOptimalBlockSize(for: elements.count), balancedBlockSize)
         
         let hashMatrix = HashMatrix(
             fingerprints: fingerprints,

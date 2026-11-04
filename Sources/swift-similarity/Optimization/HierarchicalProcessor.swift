@@ -333,24 +333,48 @@ public final class HierarchicalProcessor: Sendable {
         
         reportProgress(stage: 3, stageName: "Direct APTED", elementsProcessed: 0, totalElements: candidates.count, candidatesFound: 0, reductionRatio: 0.0)
         
-        var results: [(CodeElement, CodeElement, Double)] = []
+        // Compute TSED for candidate chunks in parallel; chunks are pulled dynamically so that
+        // expensive pairs (large trees) do not leave other cores idle.
+        let workerCount = max(1, ProcessInfo.processInfo.processorCount)
+        let chunkSize = max(1, min(64, candidates.count / (workerCount * 8)))
+        let chunkStarts = Array(stride(from: 0, to: candidates.count, by: chunkSize))
         
-        for (index, (element1, element2)) in candidates.enumerated() {
-            // Calculate full APTED similarity using the same method as standard processing
-            let similarity = try calculatePreciseSimilarity(element1, element2)
-            
-            // Apply threshold check
-            
-            if similarity >= threshold {
-                results.append((element1, element2, similarity))
+        var indexedResults: [(index: Int, result: (CodeElement, CodeElement, Double))] = []
+        var processed = 0
+        
+        try await withThrowingTaskGroup(of: (Int, [(index: Int, result: (CodeElement, CodeElement, Double))]).self) { group in
+            var nextChunk = 0
+            func submitNext() {
+                guard nextChunk < chunkStarts.count else { return }
+                let start = chunkStarts[nextChunk]
+                let end = min(start + chunkSize, candidates.count)
+                nextChunk += 1
+                group.addTask {
+                    var chunkResults: [(index: Int, result: (CodeElement, CodeElement, Double))] = []
+                    for index in start..<end {
+                        let (element1, element2) = candidates[index]
+                        let similarity = try self.calculatePreciseSimilarity(element1, element2)
+                        if similarity >= threshold {
+                            chunkResults.append((index, (element1, element2, similarity)))
+                        }
+                    }
+                    return (end - start, chunkResults)
+                }
             }
             
-            // Report progress periodically
-            if index % 100 == 0 {
-                let reductionRatio = candidates.count > 0 ? Double(candidates.count - results.count) / Double(candidates.count) : 0.0
-                reportProgress(stage: 3, stageName: "Direct APTED", elementsProcessed: index, totalElements: candidates.count, candidatesFound: results.count, reductionRatio: reductionRatio)
+            for _ in 0..<(workerCount * 2) { submitNext() }
+            
+            for try await (count, chunkResults) in group {
+                indexedResults.append(contentsOf: chunkResults)
+                processed += count
+                let reductionRatio = Double(processed - indexedResults.count) / Double(max(processed, 1))
+                reportProgress(stage: 3, stageName: "Direct APTED", elementsProcessed: processed, totalElements: candidates.count, candidatesFound: indexedResults.count, reductionRatio: reductionRatio)
+                submitNext()
             }
         }
+        
+        // Keep the deterministic candidate order regardless of completion order
+        let results = indexedResults.sorted { $0.index < $1.index }.map(\.result)
         
         let endTime = ProcessInfo.processInfo.systemUptime
         let processingTime = endTime - stageStartTime
