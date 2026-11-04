@@ -228,3 +228,42 @@ func testMatchesReferenceImplementation(costs: APTED.OperationCosts) {
         #expect(abs(actual - expected) < 1e-9)
     }
 }
+
+@Test("Mirroring both trees does not change the distance", arguments: [
+    APTED.OperationCosts(),
+    APTED.OperationCosts(insertion: 0.8, deletion: 1.0, substitution: 1.0),
+])
+func testMirrorInvariance(costs: APTED.OperationCosts) {
+    func mirror(_ tree: TreeNode) -> TreeNode {
+        SimpleTreeNode(label: tree.label, children: tree.children.reversed().map(mirror))
+    }
+    var rng = SplitMix64(state: 99)
+    let apted = APTED(costs: costs)
+    for _ in 0..<200 {
+        let tree1 = randomTree(size: Int.random(in: 1...10, using: &rng), labels: ["a", "b", "c"], rng: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...10, using: &rng), labels: ["a", "b", "c"], rng: &rng)
+        let distance = apted.editDistance(between: tree1, and: tree2)
+        #expect(abs(apted.editDistance(between: mirror(tree1), and: mirror(tree2)) - distance) < 1e-9)
+    }
+}
+
+@Test("Sequence lower bound never exceeds the tree edit distance", arguments: [
+    APTED.OperationCosts(),
+    APTED.OperationCosts(insertion: 0.8, deletion: 1.0, substitution: 1.0),
+    APTED.OperationCosts(insertion: 1.0, deletion: 2.0, substitution: 3.0),
+])
+func testSequenceLowerBound(costs: APTED.OperationCosts) {
+    var rng = SplitMix64(state: 123)
+    let apted = APTED(costs: costs)
+    for _ in 0..<300 {
+        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        #expect(apted.lowerBound(between: tree1, and: tree2) <= apted.editDistance(between: tree1, and: tree2) + 1e-9)
+    }
+    
+    // The bound can be strictly lower: same preorder sequence, different structure
+    let chain = SimpleTreeNode(label: "a", children: [SimpleTreeNode(label: "b", children: [SimpleTreeNode(label: "c")])])
+    let siblings = SimpleTreeNode(label: "a", children: [SimpleTreeNode(label: "b"), SimpleTreeNode(label: "c")])
+    #expect(apted.lowerBound(between: chain, and: siblings) == 0)
+    #expect(apted.editDistance(between: chain, and: siblings) > 0)
+}

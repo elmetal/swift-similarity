@@ -572,11 +572,9 @@ public final class VectorizedPrefilteringEngine: Sendable {
         }
         
         // TSED: tree edit distance normalized by the larger tree size
-        let similarity = SimilarityCalculator()
-            .calculateSimilarity(between: element1.treeNode, and: element2.treeNode)
-            .similarityScore
-        
-        return similarity >= threshold ? similarity : nil
+        // (skipped when a cheaper exact lower bound already rules the pair out)
+        return SimilarityCalculator()
+            .similarity(between: element1.treeNode, and: element2.treeNode, atLeast: threshold)
     }
     
     /// Calculates hash similarity using vectorized operations

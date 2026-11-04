@@ -93,6 +93,28 @@ public class SimilarityCalculator {
         )
     }
     
+    /// Returns the TSED score if it can reach `minimumSimilarity`, or nil otherwise.
+    ///
+    /// Before computing the tree edit distance, this checks a cheap O(|T1|·|T2|) lower bound of
+    /// the distance (`APTED.lowerBound`). If even that bound puts the score below
+    /// `minimumSimilarity`, the expensive computation is skipped. The bound is exact, so no pair
+    /// reaching the threshold is ever rejected.
+    /// - Parameters:
+    ///   - tree1: First tree
+    ///   - tree2: Second tree
+    ///   - minimumSimilarity: The TSED score the pair must reach
+    /// - Returns: The TSED score when it is at least `minimumSimilarity`, otherwise nil
+    public func similarity(between tree1: TreeNode, and tree2: TreeNode, atLeast minimumSimilarity: Double) -> Double? {
+        let maxNodes = Double(max(countNodes(tree1), countNodes(tree2)))
+        guard maxNodes > 0 else { return 1.0 >= minimumSimilarity ? 1.0 : nil }
+        
+        let upperBound = max(1.0 - apted.lowerBound(between: tree1, and: tree2) / maxNodes, 0.0)
+        guard upperBound >= minimumSimilarity else { return nil }
+        
+        let score = max(1.0 - apted.editDistance(between: tree1, and: tree2) / maxNodes, 0.0)
+        return score >= minimumSimilarity ? score : nil
+    }
+    
     /// Counts the total number of nodes in a tree.
     /// - Parameter tree: The tree to count nodes in
     /// - Returns: Total number of nodes
