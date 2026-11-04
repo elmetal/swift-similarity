@@ -30,9 +30,11 @@ public struct CodeElement: Sendable {
     public let codePreview: String
     /// The tree node representation for similarity calculation
     public let treeNode: TreeNode
+    /// UTF-8 byte range of the declaration in its file (excluding trivia), if known
+    public let byteRange: Range<Int>?
     
     /// Creates a code element
-    public init(elementType: CodeElementType, name: String, signature: String, filePath: String, startLine: Int, endLine: Int, codePreview: String, treeNode: TreeNode) {
+    public init(elementType: CodeElementType, name: String, signature: String, filePath: String, startLine: Int, endLine: Int, codePreview: String, treeNode: TreeNode, byteRange: Range<Int>? = nil) {
         self.elementType = elementType
         self.name = name
         self.signature = signature
@@ -41,6 +43,27 @@ public struct CodeElement: Sendable {
         self.endLine = endLine
         self.codePreview = codePreview
         self.treeNode = treeNode
+        self.byteRange = byteRange
+    }
+    
+    /// Whether one of the two elements is declared inside the other (e.g. a class and its method,
+    /// or a function and a nested function). Such pairs share source code, so comparing them is
+    /// meaningless.
+    public func isNested(with other: CodeElement) -> Bool {
+        guard filePath == other.filePath else { return false }
+        if let range = byteRange, let otherRange = other.byteRange {
+            return range.contains(otherRange) || otherRange.contains(range)
+        }
+        // Without byte ranges, fall back to line ranges (may also match elements sharing lines)
+        let contains = startLine <= other.startLine && other.endLine <= endLine
+        let isContained = other.startLine <= startLine && endLine <= other.endLine
+        return contains || isContained
+    }
+}
+
+private extension Range where Bound == Int {
+    func contains(_ other: Range<Int>) -> Bool {
+        lowerBound <= other.lowerBound && other.upperBound <= upperBound
     }
 }
 
@@ -200,7 +223,8 @@ private class CodeElementVisitor: SyntaxVisitor {
             startLine: startLine,
             endLine: endLine,
             codePreview: codePreview,
-            treeNode: treeNode
+            treeNode: treeNode,
+            byteRange: node.positionAfterSkippingLeadingTrivia.utf8Offset..<node.endPositionBeforeTrailingTrivia.utf8Offset
         )
     }
     
