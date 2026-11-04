@@ -282,7 +282,8 @@ public final class HierarchicalProcessor: Sendable {
                 let element2 = elements[j]
                 
                 processedPairs += 1
-                guard fingerprints[i].tsedUpperBound(to: fingerprints[j]) >= threshold else {
+                guard !element1.isNested(with: element2),
+                      fingerprints[i].tsedUpperBound(to: fingerprints[j]) >= threshold else {
                     continue
                 }
                 candidates.append((element1, element2))
