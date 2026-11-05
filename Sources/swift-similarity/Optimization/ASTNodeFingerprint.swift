@@ -52,7 +52,12 @@ public struct ASTNodeFingerprint: Hashable, Sendable {
             let selfCount = nodeTypeCounts[label] ?? 0
             if count > selfCount { excessOther += count - selfCount }
         }
+        return Self.treeEditDistanceLowerBound(excessSelf: excessSelf, excessOther: excessOther, costs: costs)
+    }
 
+    /// The histogram bound from the number of surplus labels on each side (shared with
+    /// `PreparedTree`, so both compute exactly the same value).
+    static func treeEditDistanceLowerBound(excessSelf: Int, excessOther: Int, costs: APTED.OperationCosts) -> Double {
         // Cost is linear in the number of renames, so the minimum is at one of the endpoints.
         let noRenames = Double(excessSelf) * costs.deletion + Double(excessOther) * costs.insertion
         let renames = min(excessSelf, excessOther)
@@ -67,9 +72,16 @@ public struct ASTNodeFingerprint: Hashable, Sendable {
     /// Pairs whose upper bound is below the threshold can be skipped without computing the tree
     /// edit distance and without any false negatives.
     public func tsedUpperBound(to other: ASTNodeFingerprint, costs: APTED.OperationCosts = APTED.OperationCosts()) -> Double {
-        let maxNodes = Double(max(totalNodes, other.totalNodes))
+        Self.tsedUpperBound(
+            distanceLowerBound: treeEditDistanceLowerBound(to: other, costs: costs),
+            maxNodes: max(totalNodes, other.totalNodes)
+        )
+    }
+
+    /// `max(1 - distanceLowerBound / maxNodes, 0)`, or 1 for empty trees
+    static func tsedUpperBound(distanceLowerBound: Double, maxNodes: Int) -> Double {
         guard maxNodes > 0 else { return 1.0 }
-        return max(1.0 - treeEditDistanceLowerBound(to: other, costs: costs) / maxNodes, 0.0)
+        return max(1.0 - distanceLowerBound / Double(maxNodes), 0.0)
     }
 }
 

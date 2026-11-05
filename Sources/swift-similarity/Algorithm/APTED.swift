@@ -50,17 +50,19 @@ public class APTED {
     ///   - tree2: The target tree
     /// - Returns: The minimum cost of transforming `tree1` into `tree2`
     public func editDistance(between tree1: TreeNode, and tree2: TreeNode) -> Double {
+        var labels = LabelInterner()
+        return editDistance(between: PreparedTree(tree1, labels: &labels), and: PreparedTree(tree2, labels: &labels))
+    }
+
+    /// Computes the edit distance between two trees prepared with the same `LabelInterner`.
+    public func editDistance(between tree1: PreparedTree, and tree2: PreparedTree) -> Double {
         // Mirroring both trees (reversing every child list) does not change the distance, but
         // Zhang–Shasha's cost depends on the orientation: its work is the product of the sums of
         // keyroot subtree sizes. Run it on whichever orientation is cheaper.
-        let left1 = IndexedTree(tree1, mirrored: false)
-        let left2 = IndexedTree(tree2, mirrored: false)
-        let right1 = IndexedTree(tree1, mirrored: true)
-        let right2 = IndexedTree(tree2, mirrored: true)
-        if right1.keyrootCost * right2.keyrootCost < left1.keyrootCost * left2.keyrootCost {
-            return zhangShasha(right1, right2)
+        if tree1.mirrored.keyrootCost * tree2.mirrored.keyrootCost < tree1.indexed.keyrootCost * tree2.indexed.keyrootCost {
+            return zhangShasha(tree1.mirrored, tree2.mirrored)
         }
-        return zhangShasha(left1, left2)
+        return zhangShasha(tree1.indexed, tree2.indexed)
     }
     
     /// A lower bound of `editDistance(between:and:)` computed in O(|T1|·|T2|) time.
@@ -72,96 +74,161 @@ public class APTED {
     /// The two orders catch different structural changes: moving a node between parent and sibling
     /// can leave one sequence unchanged but not both.
     ///
-    /// - Parameter limit: When the preorder bound already exceeds `limit`, it is returned without
-    ///   computing the postorder bound. Pass the largest distance the caller can accept.
+    /// - Parameter limit: The largest distance the caller can accept. When the bound exceeds a
+    ///   non-negative `limit`, the result is some lower bound larger than `limit` (not necessarily
+    ///   the largest one), which lets the computation stop early: the postorder bound is skipped
+    ///   when the preorder bound already exceeds it, and each string edit distance only computes
+    ///   the cells that a script within `limit` could pass through.
     public func lowerBound(between tree1: TreeNode, and tree2: TreeNode, exceeding limit: Double? = nil) -> Double {
-        var labelIds: [String: Int] = [:]
-        let pre1 = labelSequence(tree1, postorder: false, &labelIds)
-        let pre2 = labelSequence(tree2, postorder: false, &labelIds)
-        let preorderBound = stringEditDistance(pre1, pre2)
+        var labels = LabelInterner()
+        return lowerBound(between: PreparedTree(tree1, labels: &labels), and: PreparedTree(tree2, labels: &labels), exceeding: limit)
+    }
+
+    /// `lowerBound(between:and:exceeding:)` for trees prepared with the same `LabelInterner`.
+    public func lowerBound(between tree1: PreparedTree, and tree2: PreparedTree, exceeding limit: Double? = nil) -> Double {
+        let preorderBound = stringEditDistance(tree1.preorder, tree2.preorder, limit: limit)
         if let limit, preorderBound > limit {
             return preorderBound
         }
-        let post1 = labelSequence(tree1, postorder: true, &labelIds)
-        let post2 = labelSequence(tree2, postorder: true, &labelIds)
-        return max(preorderBound, stringEditDistance(post1, post2))
+        return max(preorderBound, stringEditDistance(tree1.postorder, tree2.postorder, limit: limit))
     }
     
-    /// Edit distance between two label sequences with this calculator's costs (two-row DP).
-    private func stringEditDistance(_ sequence1: [Int], _ sequence2: [Int]) -> Double {
-        let del = costs.deletion
-        let ins = costs.insertion
-        let sub = costs.substitution
+    /// Edit distance between two label sequences with this calculator's costs.
+    ///
+    /// With a non-negative `limit`, distances above it are not computed exactly: the result is then
+    /// some value in (limit, distance].
+    private func stringEditDistance(_ sequence1: [Int], _ sequence2: [Int], limit: Double?) -> Double {
+        let limit = limit.flatMap { $0 >= 0 && $0.isFinite ? $0 : nil }
+        if let integral = integralCosts(maxDistanceSteps: sequence1.count + sequence2.count) {
+            // Whole-number costs: exact Int32 arithmetic. Distances up to floor(limit) + 1 are
+            // exact, so a distance that the caller's floating-point test may still accept (limit
+            // itself is rounded) is never replaced by a smaller value; a larger one is reported as
+            // floor(limit) + 2, a whole cost unit above `limit`.
+            let maxDistance = Double(sequence1.count + sequence2.count) * Self.maxIntegerCost
+            let cutoff = limit.map { Int32(min($0.rounded(.down) + 1, maxDistance)) }
+            let distance = Self.stringEditDistance(sequence1, sequence2, costs: integral, cutoff: cutoff)
+            return Double(distance ?? cutoff! + 1)
+        }
+        // Fractional costs: compute everything up to a slightly larger cutoff, for the same reason
+        // and because rounding in sums of costs could put a path a hair below `limit`; a distance
+        // above the cutoff is reported as the cutoff.
+        let cutoff = limit.map { $0 + max(1, $0) * 1e-6 }
+        let costs = (deletion: costs.deletion, insertion: costs.insertion, substitution: costs.substitution)
+        return Self.stringEditDistance(sequence1, sequence2, costs: costs, cutoff: cutoff) ?? cutoff!
+    }
+    
+    /// Two-row edit distance DP restricted to the band of cells reachable within `cutoff`.
+    ///
+    /// A cell (i, j) with i - j > cutoff / deletion needs more deletions than the cutoff allows
+    /// (likewise for insertions); such cells count as infinite. Every cell on a path that costs at
+    /// most `cutoff` lies in the band, so a distance up to `cutoff` is exact.
+    /// - Returns: The distance, or nil if it exceeds `cutoff`
+    private static func stringEditDistance<Cost: EditCost>(
+        _ sequence1: [Int],
+        _ sequence2: [Int],
+        costs: (deletion: Cost, insertion: Cost, substitution: Cost),
+        cutoff: Cost?
+    ) -> Cost? {
+        let (del, ins, sub) = costs
+        let n = sequence1.count
+        let m = sequence2.count
+        let maxDeletions = cutoff.map { Cost.steps(of: del, within: $0) } ?? Int.max
+        let maxInsertions = cutoff.map { Cost.steps(of: ins, within: $0) } ?? Int.max
+        if n - m > maxDeletions || m - n > maxInsertions { return nil }
         
-        var previous = (0...sequence2.count).map { Double($0) * ins }
-        var current = [Double](repeating: 0, count: sequence2.count + 1)
-        for i in 1...sequence1.count {
-            current[0] = Double(i) * del
-            let symbol = sequence1[i - 1]
-            for j in 1...sequence2.count {
-                let rename = previous[j - 1] + (symbol == sequence2[j - 1] ? 0 : sub)
-                current[j] = min(previous[j] + del, current[j - 1] + ins, rename)
-            }
-            swap(&previous, &current)
+        // previous/current[j]: distance between the first i - 1 / i symbols of sequence1 and the
+        // first j of sequence2. Cells just outside the band hold `infinity`.
+        var previous = [Cost](repeating: .infinity, count: m + 1)
+        var current = [Cost](repeating: .infinity, count: m + 1)
+        for j in 0...min(m, maxInsertions) {
+            previous[j] = Cost(exactly: j)! * ins
         }
-        return previous[sequence2.count]
+        
+        var result: Cost?
+        sequence1.withUnsafeBufferPointer { s1 in
+        sequence2.withUnsafeBufferPointer { s2 in
+        previous.withUnsafeMutableBufferPointer { previousRow in
+        current.withUnsafeMutableBufferPointer { currentRow in
+            var prev = previousRow
+            var cur = currentRow
+            for i in 1...n {
+                let low = i > maxDeletions ? i - maxDeletions : 1
+                let high = min(m, maxInsertions >= m ? m : i + maxInsertions)
+                // Left edge: column 0 while it is in the band, otherwise the cell just outside.
+                var left: Cost = .infinity
+                if i <= maxDeletions {
+                    left = Cost(exactly: i)! * del
+                    cur[0] = left
+                } else {
+                    cur[low - 1] = .infinity
+                }
+                var rowMinimum = left
+                if low <= high {
+                    let symbol = s1[i - 1]
+                    for j in low...high {
+                        // Only the insertion depends on the cell just computed, so take the
+                        // minimum of the other two first (see zhangShasha).
+                        let rename = prev[j - 1] + (symbol == s2[j - 1] ? 0 : sub)
+                        left = min(min(prev[j] + del, rename), left + ins)
+                        cur[j] = left
+                        rowMinimum = min(rowMinimum, left)
+                    }
+                    // The next row reads one cell further right, outside this row's band.
+                    if high < m { cur[high + 1] = .infinity }
+                }
+                // Costs are non-negative, so no later row has a smaller minimum.
+                if let cutoff, rowMinimum > cutoff { return }
+                swap(&prev, &cur)
+            }
+            let distance = prev[m]
+            if let cutoff, distance > cutoff { return }
+            result = distance
+        }}}}
+        return result
     }
     
-    /// Label ids of the tree's nodes in preorder or postorder (iterative, for deep ASTs).
-    private func labelSequence(_ root: TreeNode, postorder: Bool, _ labelIds: inout [String: Int]) -> [Int] {
-        func id(_ label: String) -> Int {
-            if let id = labelIds[label] { return id }
-            let id = labelIds.count
-            labelIds[label] = id
-            return id
-        }
-        var result: [Int] = []
-        if postorder {
-            // Reverse of a preorder that visits children right to left.
-            var stack: [TreeNode] = [root]
-            while let node = stack.popLast() {
-                result.append(id(node.label))
-                stack.append(contentsOf: node.children)
-            }
-            result.reverse()
-        } else {
-            var stack: [TreeNode] = [root]
-            while let node = stack.popLast() {
-                result.append(id(node.label))
-                stack.append(contentsOf: node.children.reversed())
-            }
-        }
-        return result
+    /// Largest whole-number cost handled with Int32 arithmetic
+    private static let maxIntegerCost = 1024.0
+    
+    /// The costs as Int32 when they are whole numbers small enough that no distance between
+    /// trees or sequences of `maxDistanceSteps` nodes in total can overflow (with room for
+    /// `Int32.infinity`). Doubles hold these integers exactly, so results are the same.
+    private func integralCosts(maxDistanceSteps: Int) -> (deletion: Int32, insertion: Int32, substitution: Int32)? {
+        let values = [costs.deletion, costs.insertion, costs.substitution]
+        guard values.allSatisfy({ $0 >= 0 && $0 <= Self.maxIntegerCost && $0 == $0.rounded() }),
+              Double(maxDistanceSteps) * Self.maxIntegerCost < Double(Int32.max / 8) else { return nil }
+        return (Int32(costs.deletion), Int32(costs.insertion), Int32(costs.substitution))
     }
     
     // MARK: - Zhang–Shasha
     
     private func zhangShasha(_ t1: IndexedTree, _ t2: IndexedTree) -> Double {
+        // With whole-number costs (the default) every distance is a small integer, so the tables
+        // can hold Int32: half the memory, and cheaper additions and comparisons.
+        if let integral = integralCosts(maxDistanceSteps: t1.count + t2.count) {
+            return Double(Self.zhangShasha(t1, t2, costs: integral))
+        }
+        return Self.zhangShasha(t1, t2, costs: (costs.deletion, costs.insertion, costs.substitution))
+    }
+    
+    private static func zhangShasha<Cost: EditCost>(
+        _ t1: IndexedTree,
+        _ t2: IndexedTree,
+        costs: (deletion: Cost, insertion: Cost, substitution: Cost)
+    ) -> Cost {
+        let (del, ins, sub) = costs
         let n = t1.count
         let m = t2.count
         let width = m + 1
         
-        // Integer label ids so the inner loop compares Ints, not Strings.
-        var labelIds: [String: Int] = [:]
-        func ids(_ labels: [String]) -> [Int] {
-            labels.map { label in
-                if let id = labelIds[label] { return id }
-                let id = labelIds.count
-                labelIds[label] = id
-                return id
-            }
-        }
-        let labels1 = ids(t1.labels)
-        let labels2 = ids(t2.labels)
-        
-        let del = costs.deletion
-        let ins = costs.insertion
-        let sub = costs.substitution
+        // Label ids come from one LabelInterner, so the inner loop compares Ints, not Strings.
+        let labels1 = t1.labels
+        let labels2 = t2.labels
         
         // treeDist[i * width + j]: distance between subtree rooted at i (in t1) and j (in t2), 1-based postorder.
-        var treeDist = [Double](repeating: 0, count: (n + 1) * width)
+        var treeDist = [Cost](repeating: 0, count: (n + 1) * width)
         // forestDist is reused for every keyroot pair; it is indexed relative to the leftmost leaves.
-        var forestDist = [Double](repeating: 0, count: (n + 1) * width)
+        var forestDist = [Cost](repeating: 0, count: (n + 1) * width)
         
         // Unsafe buffers avoid bounds checks in the O(n²·depth²) inner loop; all indices stay
         // within the (n + 1) x (m + 1) tables by construction.
@@ -200,18 +267,22 @@ public class APTED {
                             let j1 = lj + y - 1
                             let lj1 = lm2[j1]
                             
+                            // Only the insertion depends on the cell just computed; take the
+                            // minimum of the other two first so the loop-carried chain is one
+                            // addition and one comparison.
                             let deleteCost = fd[previousRow + y] + del
-                            let insertCost = fd[row + y - 1] + ins
-                            
-                            let value: Double
+                            let other: Cost
                             if isTree1 && lj1 == lj {
                                 // Both prefixes are whole trees: rename the roots.
                                 let renameCost = label1 == l2[j1 - 1] ? 0 : sub
-                                value = min(deleteCost, insertCost, fd[previousRow + y - 1] + renameCost)
-                                td[treeRow + j1] = value
+                                other = min(deleteCost, fd[previousRow + y - 1] + renameCost)
                             } else {
                                 // Match previously computed subtrees.
-                                value = min(deleteCost, insertCost, fd[prefixRow + lj1 - lj] + td[treeRow + j1])
+                                other = min(deleteCost, fd[prefixRow + lj1 - lj] + td[treeRow + j1])
+                            }
+                            let value = min(other, fd[row + y - 1] + ins)
+                            if isTree1 && lj1 == lj {
+                                td[treeRow + j1] = value
                             }
                             fd[row + y] = value
                         }
@@ -224,58 +295,27 @@ public class APTED {
     }
 }
 
-// MARK: - Indexed Tree
+// MARK: - Cost Types
 
-/// Postorder-indexed representation of a tree used by the Zhang–Shasha algorithm.
-/// Node indices are 1-based; index 0 is unused.
-private struct IndexedTree {
-    /// Labels in postorder (0-based array, node `i` is at `labels[i - 1]`).
-    var labels: [String] = []
-    /// `leftmost[i]` is the postorder index of the leftmost leaf descendant of node `i`.
-    var leftmost: [Int] = [0]
-    /// Keyroots in increasing postorder.
-    var keyroots: [Int] = []
-    /// Sum of keyroot subtree sizes; Zhang–Shasha's work is proportional to the product of
-    /// this value for both trees.
-    var keyrootCost: Int = 0
-    
-    var count: Int { labels.count }
-    
-    /// - Parameters:
-    ///   - root: The tree to index
-    ///   - mirrored: Visit children right-to-left, indexing the mirror image of the tree
-    init(_ root: TreeNode, mirrored: Bool) {
-        // Iterative postorder to avoid stack overflow on deep ASTs.
-        var stack: [(node: TreeNode, childIndex: Int, leftmost: Int)] = [(root, 0, 0)]
-        while !stack.isEmpty {
-            let top = stack.count - 1
-            let node = stack[top].node
-            let childIndex = stack[top].childIndex
-            let childCount = node.children.count
-            if childIndex < childCount {
-                stack[top].childIndex += 1
-                let child = node.children[mirrored ? childCount - 1 - childIndex : childIndex]
-                stack.append((child, 0, 0))
-                continue
-            }
-            let frame = stack.removeLast()
-            labels.append(node.label)
-            let index = labels.count
-            // A leaf is its own leftmost leaf; otherwise inherit from the first child.
-            let lml = node.children.isEmpty ? index : frame.leftmost
-            leftmost.append(lml)
-            // If this node is its parent's first child, record it for the parent.
-            if let parent = stack.indices.last, stack[parent].childIndex == 1 {
-                stack[parent].leftmost = lml
-            }
-        }
-        
-        // Keyroots: for each distinct leftmost leaf, the highest node having it.
-        var highest: [Int: Int] = [:]
-        for i in 1...count {
-            highest[leftmost[i]] = i
-        }
-        keyroots = highest.values.sorted()
-        keyrootCost = keyroots.reduce(0) { $0 + $1 - leftmost[$1] + 1 }
+/// Number types the dynamic programs run on: Int32 for whole-number costs, Double otherwise.
+private protocol EditCost: Numeric, Comparable {
+    /// A value larger than any distance, which stays larger after adding a few costs
+    static var infinity: Self { get }
+    /// An upper bound on the number of operations of `cost` that fit within `cutoff`; an edit
+    /// script with more of them costs more than `cutoff`. `cost` and `cutoff` are non-negative.
+    static func steps(of cost: Self, within cutoff: Self) -> Int
+}
+
+extension Int32: EditCost {
+    static var infinity: Int32 { Int32.max / 4 }
+    static func steps(of cost: Int32, within cutoff: Int32) -> Int {
+        cost > 0 ? Int(cutoff / cost) : Int.max
+    }
+}
+
+extension Double: EditCost {
+    static func steps(of cost: Double, within cutoff: Double) -> Int {
+        // One extra step absorbs rounding in sums of fractional costs.
+        cost > 0 ? Int(min(cutoff / cost, Double(Int32.max))) + 1 : Int.max
     }
 }

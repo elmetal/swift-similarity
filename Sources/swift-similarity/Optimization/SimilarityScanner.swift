@@ -6,7 +6,8 @@ import Foundation
 ///
 /// The pipeline is exact: it reports the same pairs, with the same scores, as comparing every pair
 /// with `SimilarityCalculator`.
-/// 1. Each element's tree is fingerprinted once (label histogram and size).
+/// 1. Each element's tree is prepared once (`PreparedTree`): label histogram, size, and what the
+///    tree edit distance and its lower bounds need, with labels interned to integers.
 /// 2. Pairs of a declaration and one nested inside it are skipped.
 /// 3. Pairs whose TSED upper bound (from the histograms) is below the threshold are skipped.
 /// 4. The remaining pairs get a bounded TSED computation, in parallel on every core.
@@ -22,7 +23,7 @@ public struct SimilarityScanner: Sendable {
     public struct Progress: Sendable {
         /// The step a scan is in
         public enum Phase: String, Sendable {
-            /// Computing the fingerprint of each element; units are elements
+            /// Preparing each element's tree (label histogram and edit distance indexes); units are elements
             case fingerprinting
             /// Comparing pairs; units are tasks (groups of pairs of similar estimated cost)
             case comparing
@@ -87,7 +88,7 @@ public struct SimilarityScanner: Sendable {
     /// Finds every pair of `elements` whose TSED score is at least `threshold`.
     public func scan(_ elements: [CodeElement], threshold: Double) async throws -> Result {
         let startTime = ProcessInfo.processInfo.systemUptime
-        let fingerprints = fingerprint(elements, startTime: startTime)
+        let trees = prepare(elements, startTime: startTime)
         let fingerprintTime = ProcessInfo.processInfo.systemUptime - startTime
 
         let workerCount = workerCount
@@ -100,8 +101,8 @@ public struct SimilarityScanner: Sendable {
             // estimated cost (product of the tree sizes, the shape of the edit distance cost). Tasks
             // are submitted heaviest first, so one large pair does not keep a long run of other work
             // on a single core.
-            let order = elements.indices.sorted { fingerprints[$0].totalNodes > fingerprints[$1].totalNodes }
-            let tasks = Self.makeTasks(sizes: order.map { fingerprints[$0].totalNodes }, workerCount: workerCount)
+            let order = elements.indices.sorted { trees[$0].nodeCount > trees[$1].nodeCount }
+            let tasks = Self.makeTasks(sizes: order.map { trees[$0].nodeCount }, workerCount: workerCount)
             let comparisonStart = ProcessInfo.processInfo.systemUptime
             report(.comparing, completed: 0, total: tasks.count, pairsFound: 0, since: comparisonStart)
 
@@ -113,7 +114,7 @@ public struct SimilarityScanner: Sendable {
                     nextTask += 1
                     let costs = costs
                     group.addTask {
-                        Self.compare(task, order: order, elements: elements, fingerprints: fingerprints, threshold: threshold, costs: costs)
+                        Self.compare(task, order: order, elements: elements, trees: trees, threshold: threshold, costs: costs)
                     }
                 }
                 for _ in 0..<workerCount { submitNext() }
@@ -237,18 +238,15 @@ public struct SimilarityScanner: Sendable {
         let counts: PairCounts
     }
 
-    /// Fingerprints every element, reporting progress about 20 times.
-    private func fingerprint(_ elements: [CodeElement], startTime: Double) -> [ASTNodeFingerprint] {
-        let reportInterval = max(1, elements.count / 20)
-        var fingerprints: [ASTNodeFingerprint] = []
-        fingerprints.reserveCapacity(elements.count)
-        for (index, element) in elements.enumerated() {
-            fingerprints.append(element.treeNode.extractFingerprint())
-            if progressHandler != nil, (index + 1) % reportInterval == 0 || index == elements.count - 1 {
-                report(.fingerprinting, completed: index + 1, total: elements.count, pairsFound: 0, since: startTime)
-            }
-        }
-        return fingerprints
+    /// Prepares every element's tree on all cores. Only mapping each tree's distinct labels to
+    /// scan-wide ids runs sequentially.
+    private func prepare(_ elements: [CodeElement], startTime: Double) -> [PreparedTree] {
+        let flatTrees = elements.concurrentMap { FlatTree($0.treeNode) }
+        var labels = LabelInterner()
+        let labelIds = flatTrees.map { $0.labels.map { labels.id(for: $0) } }
+        let trees = Array(zip(flatTrees, labelIds)).concurrentMap { PreparedTree($0, labelIds: $1) }
+        report(.fingerprinting, completed: elements.count, total: elements.count, pairsFound: 0, since: startTime)
+        return trees
     }
 
     /// Compares element `order[task.row]` with the elements at `task.positions` in `order`.
@@ -256,7 +254,7 @@ public struct SimilarityScanner: Sendable {
         _ task: PairTask,
         order: [Int],
         elements: [CodeElement],
-        fingerprints: [ASTNodeFingerprint],
+        trees: [PreparedTree],
         threshold: Double,
         costs: APTED.OperationCosts
     ) -> TaskResult {
@@ -275,7 +273,7 @@ public struct SimilarityScanner: Sendable {
             }
             // Exact prefilter: the TSED upper bound from label histograms. Unlike heuristic
             // filters this never rejects a pair that would match.
-            guard fingerprints[index1].tsedUpperBound(to: fingerprints[index2], costs: costs) >= threshold else {
+            guard trees[index1].tsedUpperBound(to: trees[index2], costs: costs) >= threshold else {
                 counts.ruledOutByUpperBound += 1
                 continue
             }
@@ -283,8 +281,8 @@ public struct SimilarityScanner: Sendable {
             // exact lower bound on the distance already rules the pair out)
             counts.compared += 1
             if let similarity = calculator.similarity(
-                between: elements[index1].treeNode,
-                and: elements[index2].treeNode,
+                between: trees[index1],
+                and: trees[index2],
                 atLeast: threshold
             ) {
                 pairs.append(IndexedPair(index1: index1, index2: index2, similarity: similarity))

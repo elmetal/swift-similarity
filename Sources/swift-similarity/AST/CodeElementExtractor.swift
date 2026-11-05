@@ -74,10 +74,10 @@ private extension Range where Bound == Int {
 // MARK: - Code Element Extractor
 
 /// Extracts code elements from Swift source files using SwiftSyntax
-public class CodeElementExtractor {
+public final class CodeElementExtractor: Sendable {
     
     /// Configuration for code element extraction
-    public struct Configuration {
+    public struct Configuration: Sendable {
         /// Types of elements to extract
         public let elementTypes: Set<CodeElementType>
         /// Maximum lines for code preview
@@ -136,8 +136,8 @@ public class CodeElementExtractor {
     /// - Returns: Array of extracted code elements
     /// - Throws: File reading or parsing errors
     public func extractElements(from filePath: String) throws -> [CodeElement] {
-        let sourceFile = try SwiftASTParser.parseFile(at: filePath)
         let sourceContent = try String(contentsOf: URL(fileURLWithPath: filePath))
+        let sourceFile = SwiftASTParser.parseSource(sourceContent)
         let sourceLines = sourceContent.components(separatedBy: .newlines)
         
         let visitor = CodeElementVisitor(
@@ -170,15 +170,13 @@ public class CodeElementExtractor {
         try extractElements(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
     }
 
+    /// Extracts the files in parallel (each file is parsed and walked independently) and returns
+    /// their elements in file order. When files fail, the first failing file's error is thrown.
     private func extractElements(fromFiles swiftFiles: [String]) throws -> [CodeElement] {
-        var allElements: [CodeElement] = []
-        
-        for filePath in swiftFiles {
-            let elements = try extractElements(from: filePath)
-            allElements.append(contentsOf: elements)
+        let results = swiftFiles.concurrentMap { filePath in
+            Result { try self.extractElements(from: filePath) }
         }
-        
-        return allElements
+        return try results.flatMap { try $0.get() }
     }
 }
 
