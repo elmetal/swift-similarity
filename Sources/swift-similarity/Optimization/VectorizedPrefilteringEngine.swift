@@ -19,9 +19,9 @@ public final class VectorizedPrefilteringEngine: Sendable {
     
     /// Vectorized processing configuration
     public struct Configuration: Sendable {
-        /// Performance optimization level
+        /// No longer affects scheduling; every level runs the same tasks. Kept for source compatibility.
         public let optimizationLevel: OptimizationLevel
-        /// Block size for batch processing (0 = auto-detect)
+        /// No longer used: work is split into tasks of similar estimated cost. Kept for source compatibility.
         public let blockSize: Int
         /// Maximum number of concurrent tasks (0 = auto-detect)
         public let maxConcurrency: Int
@@ -142,39 +142,32 @@ public final class VectorizedPrefilteringEngine: Sendable {
             resources: SystemResources,
             elementCount: Int
         ) -> Configuration {
+            // Every pair is independent and CPU-bound, so all scales use every core. The level and
+            // block size no longer affect scheduling and are kept only for source compatibility.
             switch scale {
             case .small:
-                // Small projects: Maximum parallelism for best responsiveness
                 return Configuration(
                     optimizationLevel: .aggressive,
                     blockSize: min(1000, max(100, elementCount / 4)),
                     maxConcurrency: resources.availableCores
                 )
-                
             case .medium:
-                // Medium projects: Balanced approach
-                let optimalThreads = max(2, min(resources.availableCores / 2, 8))
                 return Configuration(
                     optimizationLevel: .balanced,
                     blockSize: min(2000, max(500, elementCount / 8)),
-                    maxConcurrency: optimalThreads
+                    maxConcurrency: resources.availableCores
                 )
-                
             case .large:
-                // Large projects: Conservative parallelism to avoid CPU saturation
-                let conservativeThreads = max(2, min(4, resources.availableCores / 2))
                 return Configuration(
                     optimizationLevel: .conservative,
                     blockSize: min(5000, max(1000, elementCount / 16)),
-                    maxConcurrency: conservativeThreads
+                    maxConcurrency: resources.availableCores
                 )
-                
             case .massive:
-                // Massive projects: Sequential processing with optimizations
                 return Configuration(
                     optimizationLevel: .conservative,
                     blockSize: min(10000, max(2000, elementCount / 32)),
-                    maxConcurrency: 2  // Minimal parallelism
+                    maxConcurrency: resources.availableCores
                 )
             }
         }
@@ -211,14 +204,10 @@ public final class VectorizedPrefilteringEngine: Sendable {
     
     // MARK: - Internal Types
     
-    /// Block of elements for batch processing
-    private struct ProcessingBlock: Sendable {
-        let startIndex: Int
-        let endIndex: Int
-        let elements: [CodeElement]
-        let fingerprints: [ASTNodeFingerprint]
-        
-        var size: Int { endIndex - startIndex }
+    /// Pairs of one element (`order[row]`) with the elements at `positions` in the processing order
+    struct PairTask: Sendable, Equatable {
+        let row: Int
+        let positions: Range<Int>
     }
     
     /// Candidate pair result from vectorized processing
@@ -256,10 +245,9 @@ public final class VectorizedPrefilteringEngine: Sendable {
         let startTime = ProcessInfo.processInfo.systemUptime
         
         // Extract fingerprints with progress reporting (this is the heavy operation)
-        var fingerprints: [ASTNodeFingerprint] = []
+        var fingerprintList: [ASTNodeFingerprint] = []
         for (index, element) in elements.enumerated() {
-            let fingerprint = element.treeNode.extractFingerprint()
-            fingerprints.append(fingerprint)
+            fingerprintList.append(element.treeNode.extractFingerprint())
             
             // Report progress during fingerprint creation - more frequent for smaller projects
             let reportInterval = if elements.count < 50 {
@@ -280,212 +268,139 @@ public final class VectorizedPrefilteringEngine: Sendable {
             }
         }
         
-        // Blocks are scheduled dynamically, but block i also compares against every later block,
-        // so early blocks carry most of the work. Keep at least 4 blocks per worker so that work
-        // spreads across all cores even for small projects.
-        let workerCount = configuration.maxConcurrency > 0
+        let fingerprints = fingerprintList
+        
+        // Element order[p] is compared with every element after it in `order`. Elements are ordered
+        // by size, largest first, and each such row is cut into tasks of roughly equal estimated cost
+        // (product of the tree sizes, the shape of the edit distance cost). Tasks are submitted
+        // heaviest first, so one large pair does not keep a long run of other work on a single core.
+        let order = elements.indices.sorted { fingerprints[$0].totalNodes > fingerprints[$1].totalNodes }
+        let maxConcurrency = configuration.maxConcurrency > 0
             ? configuration.maxConcurrency
             : ProcessInfo.processInfo.processorCount
-        let balancedBlockSize = max(1, (elements.count + workerCount * 4 - 1) / (workerCount * 4))
-        let blockSize = min(determineOptimalBlockSize(for: elements.count), balancedBlockSize)
+        let tasks = Self.makeTasks(sizes: order.map { fingerprints[$0].totalNodes }, workerCount: maxConcurrency)
         
-        // Create processing blocks for parallel execution
-        let blocks = createProcessingBlocks(elements: elements, fingerprints: fingerprints, blockSize: blockSize)
+        await reportProgress(blocksProcessed: 0, totalBlocks: tasks.count, candidatesFound: 0, startTime: startTime)
         
-        // Report progress after block creation
-        await reportProgress(
-            blocksProcessed: 0,
-            totalBlocks: blocks.count,
-            candidatesFound: 0,
-            startTime: startTime
-        )
+        var candidates: [CandidatePair] = []
+        try await withThrowingTaskGroup(of: [CandidatePair].self) { group in
+            var nextTask = 0
+            func submitNext() {
+                guard nextTask < tasks.count else { return }
+                let task = tasks[nextTask]
+                nextTask += 1
+                group.addTask {
+                    self.process(task, order: order, elements: elements, fingerprints: fingerprints, threshold: threshold)
+                }
+            }
+            for _ in 0..<maxConcurrency { submitNext() }
+            
+            var processedTasks = 0
+            for try await taskCandidates in group {
+                candidates.append(contentsOf: taskCandidates)
+                processedTasks += 1
+                await reportProgress(blocksProcessed: processedTasks, totalBlocks: tasks.count, candidatesFound: candidates.count, startTime: startTime)
+                submitNext()
+            }
+        }
         
-        // Process blocks in parallel using TaskGroup
-        let candidates = try await processBlocksInParallel(blocks: blocks, threshold: threshold, startTime: startTime)
-        
-        return candidates
+        // Completion order varies between runs; return a stable order instead: most similar first,
+        // ties by position in `elements`.
+        candidates.sort {
+            ($0.similarity, $1.index1, $1.index2) > ($1.similarity, $0.index1, $0.index2)
+        }
+        return candidates.map { ($0.element1, $0.element2, $0.similarity) }
     }
     
     // MARK: - Private Implementation
     
-    /// Determines optimal block size based on configuration and data characteristics
-    private func determineOptimalBlockSize(for elementCount: Int) -> Int {
-        if configuration.blockSize > 0 {
-            return configuration.blockSize
-        }
-        
-        // Auto-detect optimal block size based on system characteristics
-        let processorCount = ProcessInfo.processInfo.processorCount
-        
-        switch configuration.optimizationLevel {
-        case .conservative:
-            return min(64, max(16, elementCount / (processorCount * 4)))
-        case .balanced:
-            return min(256, max(64, elementCount / (processorCount * 2)))
-        case .aggressive:
-            return min(1024, max(128, elementCount / processorCount))
-        case .auto:
-            return min(512, max(128, elementCount / processorCount))
-        }
-    }
-    
-    /// Creates processing blocks for parallel execution
-    private func createProcessingBlocks(
+    /// Compares element `order[task.row]` with the elements at `task.positions` in `order`.
+    /// Pairs are reported in input order (lower index first).
+    private func process(
+        _ task: PairTask,
+        order: [Int],
         elements: [CodeElement],
         fingerprints: [ASTNodeFingerprint],
-        blockSize: Int
-    ) -> [ProcessingBlock] {
-        var blocks: [ProcessingBlock] = []
-        let elementCount = elements.count
-        
-        for startIndex in stride(from: 0, to: elementCount, by: blockSize) {
-            let endIndex = min(startIndex + blockSize, elementCount)
-            let blockElements = Array(elements[startIndex..<endIndex])
-            
-            let block = ProcessingBlock(
-                startIndex: startIndex,
-                endIndex: endIndex,
-                elements: blockElements,
-                fingerprints: fingerprints
-            )
-            blocks.append(block)
-        }
-        
-        return blocks
-    }
-    
-    /// Processes blocks in parallel using structured concurrency
-    private func processBlocksInParallel(
-        blocks: [ProcessingBlock],
-        threshold: Double,
-        startTime: Double
-    ) async throws -> [(CodeElement, CodeElement, Double)] {
-        let maxConcurrency = configuration.maxConcurrency > 0 
-            ? configuration.maxConcurrency 
-            : ProcessInfo.processInfo.processorCount
-        
-        var processedBlocks = 0
-        
-        return try await withThrowingTaskGroup(of: [CandidatePair].self) { group in
-            var results: [(CodeElement, CodeElement, Double)] = []
-            
-            // Submit initial batch of tasks
-            var submittedTasks = 0
-            for block in blocks.prefix(maxConcurrency) {
-                group.addTask {
-                    await self.processBlock(block, threshold: threshold, allBlocks: blocks)
-                }
-                submittedTasks += 1
-            }
-            
-            // Process results and submit remaining tasks
-            for try await blockCandidates in group {
-                processedBlocks += 1
-                
-                // Convert CandidatePair to result format
-                for candidate in blockCandidates {
-                    results.append((candidate.element1, candidate.element2, candidate.similarity))
-                }
-                
-                // Report progress
-                await reportProgress(
-                    blocksProcessed: processedBlocks,
-                    totalBlocks: blocks.count,
-                    candidatesFound: results.count,
-                    startTime: startTime
-                )
-                
-                // Submit next task if available
-                if submittedTasks < blocks.count {
-                    let nextBlock = blocks[submittedTasks]
-                    group.addTask {
-                        await self.processBlock(nextBlock, threshold: threshold, allBlocks: blocks)
-                    }
-                    submittedTasks += 1
-                }
-            }
-            
-            return results
-        }
-    }
-    
-    /// Processes a single block using vectorized operations
-    private func processBlock(
-        _ block: ProcessingBlock,
-        threshold: Double,
-        allBlocks: [ProcessingBlock]
-    ) async -> [CandidatePair] {
+        threshold: Double
+    ) -> [CandidatePair] {
         var candidates: [CandidatePair] = []
-        
-        // Process pairs within this block
-        for i in 0..<block.elements.count {
-            for j in (i+1)..<block.elements.count {
-                let element1 = block.elements[i]
-                let element2 = block.elements[j]
-                
-                // Use vectorized similarity check
-                if let similarity = await vectorizedSimilarityCheck(
-                    element1: element1,
-                    element2: element2,
-                    fingerprints: block.fingerprints,
-                    index1: block.startIndex + i,
-                    index2: block.startIndex + j,
-                    threshold: threshold
-                ) {
-                    let candidate = CandidatePair(
-                        index1: block.startIndex + i,
-                        index2: block.startIndex + j,
-                        element1: element1,
-                        element2: element2,
-                        similarity: similarity
-                    )
-                    candidates.append(candidate)
-                }
+        let first = order[task.row]
+        for position in task.positions {
+            let second = order[position]
+            let (index1, index2) = first < second ? (first, second) : (second, first)
+            if let similarity = similarityCheck(
+                element1: elements[index1],
+                element2: elements[index2],
+                fingerprints: fingerprints,
+                index1: index1,
+                index2: index2,
+                threshold: threshold
+            ) {
+                candidates.append(CandidatePair(
+                    index1: index1,
+                    index2: index2,
+                    element1: elements[index1],
+                    element2: elements[index2],
+                    similarity: similarity
+                ))
             }
         }
-        
-        // Process pairs with other blocks (avoid duplicates)
-        for otherBlock in allBlocks {
-            guard otherBlock.startIndex > block.startIndex else { continue }
-            
-            for i in 0..<block.elements.count {
-                for j in 0..<otherBlock.elements.count {
-                    let element1 = block.elements[i]
-                    let element2 = otherBlock.elements[j]
-                    
-                    if let similarity = await vectorizedSimilarityCheck(
-                        element1: element1,
-                        element2: element2,
-                        fingerprints: block.fingerprints,
-                        index1: block.startIndex + i,
-                        index2: otherBlock.startIndex + j,
-                        threshold: threshold
-                    ) {
-                        let candidate = CandidatePair(
-                            index1: block.startIndex + i,
-                            index2: otherBlock.startIndex + j,
-                            element1: element1,
-                            element2: element2,
-                            similarity: similarity
-                        )
-                        candidates.append(candidate)
-                    }
-                }
-            }
-        }
-        
         return candidates
     }
     
-    /// Performs vectorized similarity check using optimized operations
-    private func vectorizedSimilarityCheck(
+    /// Splits all pairs into tasks of roughly equal estimated cost.
+    /// - Parameters:
+    ///   - sizes: Tree sizes in processing order (largest first)
+    ///   - workerCount: Number of tasks run concurrently
+    /// - Returns: Tasks covering every pair `(row, position)` with `row < position` exactly once,
+    ///   roughly heaviest first
+    static func makeTasks(sizes: [Int], workerCount: Int) -> [PairTask] {
+        guard sizes.count >= 2 else { return [] }
+        // Suffix sums give each row's cost without visiting every pair.
+        var suffix = [Double](repeating: 0, count: sizes.count + 1)
+        for index in stride(from: sizes.count - 1, through: 0, by: -1) {
+            suffix[index] = suffix[index + 1] + Double(sizes[index])
+        }
+        var totalCost = 0.0
+        for row in 0..<(sizes.count - 1) {
+            totalCost += Double(sizes[row]) * suffix[row + 1]
+        }
+        // Many more tasks than workers, so the last ones to finish are small.
+        let budget = max(totalCost / Double(max(1, workerCount) * 32), 1)
+        
+        var tasks: [PairTask] = []
+        for row in 0..<(sizes.count - 1) {
+            let rowSize = Double(sizes[row])
+            if rowSize * suffix[row + 1] <= budget {
+                tasks.append(PairTask(row: row, positions: (row + 1)..<sizes.count))
+                continue
+            }
+            var start = row + 1
+            var cost = 0.0
+            for position in (row + 1)..<sizes.count {
+                cost += rowSize * Double(sizes[position])
+                if cost >= budget {
+                    tasks.append(PairTask(row: row, positions: start..<(position + 1)))
+                    start = position + 1
+                    cost = 0
+                }
+            }
+            if start < sizes.count {
+                tasks.append(PairTask(row: row, positions: start..<sizes.count))
+            }
+        }
+        return tasks
+    }
+    
+    /// TSED score of the pair if it reaches `threshold`, skipping pairs the exact bounds rule out
+    private func similarityCheck(
         element1: CodeElement,
         element2: CodeElement,
         fingerprints: [ASTNodeFingerprint],
         index1: Int,
         index2: Int,
         threshold: Double
-    ) async -> Double? {
+    ) -> Double? {
         // A declaration and one nested inside it share code; never report them as similar.
         guard !element1.isNested(with: element2) else {
             return nil

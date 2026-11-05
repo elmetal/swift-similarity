@@ -33,7 +33,7 @@ struct ScanCommand: AsyncParsableCommand {
     
     // MARK: - Performance Optimization Options
     
-    @Option(name: .long, help: "Optimization level (conservative, balanced, aggressive, auto)")
+    @Option(name: .long, help: "Deprecated, has no effect: every level schedules the work the same way (conservative, balanced, aggressive, auto)")
     var optimization: String = "auto"
     
     @Flag(name: .long, help: "Show progress during similarity calculation")

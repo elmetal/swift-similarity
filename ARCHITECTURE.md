@@ -101,10 +101,10 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
   with no false negatives
 
 **VectorizedPrefilteringEngine** (default CLI path)
-- Builds fingerprints, splits the elements into blocks and processes the blocks in parallel with a `TaskGroup`
+- Builds fingerprints, then processes the pairs in parallel with a `TaskGroup`
 - For each pair: TSED upper-bound check, then the exact TSED via `SimilarityCalculator`
-- `OptimizationLevel` (`conservative` / `balanced` / `aggressive` / `auto`) sets the block size;
-  `AdaptiveConfiguration` picks the block size and concurrency from the project scale (see below)
+- Splits the pairs into cost-balanced tasks run on every core (see Scheduling below); results are
+  sorted by score
 
 **HierarchicalProcessor** (`--hierarchical`)
 - Stage 1: fingerprint creation (optional sampling)
@@ -129,22 +129,20 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 
 1. **Exact prefiltering**: the label-histogram TSED upper bound removes pairs that cannot reach the
    threshold, without computing the edit distance. It works best at high thresholds.
-2. **Parallel processing**: block-wise processing with Swift structured concurrency (default path).
+2. **Parallel processing**: cost-balanced tasks on every core with Swift structured concurrency (see Scheduling).
 3. **Efficient edit distance**: Zhang–Shasha with flat arrays, integer label ids and reused DP buffers.
 
-### Adaptive Configuration (`--optimization auto`, the default)
+### Scheduling
 
-Project scale is based on the number of possible pairs `n(n-1)/2`:
+`VectorizedPrefilteringEngine` orders the elements by tree size, largest first. It compares each
+element with the elements after it, and cuts each of these rows into tasks of roughly equal estimated
+cost (the product of the two tree sizes). Tasks are submitted heaviest first to a `TaskGroup` with one
+task per core (`--threads` overrides this). Results are sorted by score, highest first, with ties in
+input order, so the output does not depend on which task finishes first.
 
-| Scale | Pairs | Level | Concurrency | Block size |
-|-------|-------|-------|-------------|------------|
-| `small` | < 10K | aggressive | all cores | n/4 (100–1000) |
-| `medium` | 10K–100K | balanced | cores/2 (2–8) | n/8 (500–2000) |
-| `large` | 100K–1M | conservative | cores/2 (2–4) | n/16 (1000–5000) |
-| `massive` | ≥ 1M | conservative | 2 | n/32 (2000–10000) |
-
-With an explicit level, the block size is auto-detected from that level, and concurrency defaults to
-the core count unless `--threads` is given.
+`AdaptiveConfiguration` and `--optimization` used to pick block sizes and cap the number of threads for
+larger projects. Every pair is independent and CPU-bound, so all scales now use every core, and the
+level no longer changes anything.
 
 ## Data Flow
 
