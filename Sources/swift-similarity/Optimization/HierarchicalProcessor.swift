@@ -172,8 +172,7 @@ public final class HierarchicalProcessor: Sendable {
         let engineConfig = vectorizedConfig ?? VectorizedPrefilteringEngine.Configuration(
             optimizationLevel: .aggressive,
             blockSize: 2000,
-            maxConcurrency: 4, // Conservative for stage processing
-            enableSIMD: true
+            maxConcurrency: 4 // Conservative for stage processing
         )
         self.vectorizedEngine = VectorizedPrefilteringEngine(configuration: engineConfig)
     }
@@ -195,7 +194,7 @@ public final class HierarchicalProcessor: Sendable {
         // Create fingerprints with progress reporting (this is the heavy operation)
         var fingerprints: [ASTNodeFingerprint] = []
         for (index, element) in elements.enumerated() {
-            let fingerprint = createFingerprint(from: element.treeNode)
+            let fingerprint = element.treeNode.extractFingerprint()
             fingerprints.append(fingerprint)
             
             // Report progress during fingerprint creation - more frequent for smaller projects
@@ -273,7 +272,7 @@ public final class HierarchicalProcessor: Sendable {
         var candidates: [(CodeElement, CodeElement)] = []
         let totalPairs = elements.count * (elements.count - 1) / 2
         var processedPairs = 0
-        let fingerprints = elements.map { createFingerprint(from: $0.treeNode) }
+        let fingerprints = elements.map { $0.treeNode.extractFingerprint() }
         
         // Reject pairs whose TSED upper bound is below the threshold (no false negatives)
         for i in 0..<elements.count {
@@ -412,43 +411,6 @@ public final class HierarchicalProcessor: Sendable {
                configuration.targetResultCount > 0 &&
                candidateCount <= configuration.targetResultCount
     }
-    
-    /// Create fingerprint from tree node
-    private func createFingerprint(from treeNode: TreeNode) -> ASTNodeFingerprint {
-        var nodeTypeCounts: [String: Int] = [:]
-        var totalNodes = 0
-        var maxDepth = 0
-        var leafNodeCount = 0
-        
-        func traverse(node: TreeNode, depth: Int) {
-            totalNodes += 1
-            maxDepth = max(maxDepth, depth)
-            
-            let nodeType = node.label
-            nodeTypeCounts[nodeType, default: 0] += 1
-            
-            if node.children.isEmpty {
-                leafNodeCount += 1
-            }
-            
-            for child in node.children {
-                traverse(node: child, depth: depth + 1)
-            }
-        }
-        
-        traverse(node: treeNode, depth: 0)
-        
-        return ASTNodeFingerprint(
-            nodeTypeCounts: nodeTypeCounts,
-            totalNodes: totalNodes,
-            maxDepth: maxDepth,
-            leafNodeCount: leafNodeCount
-        )
-    }
-    
-
-    
-
     
     /// TSED score of the pair if it reaches `threshold`, using the same method as
     /// VectorizedPrefilteringEngine (an exact lower bound skips hopeless pairs).

@@ -25,10 +25,6 @@ public final class VectorizedPrefilteringEngine: Sendable {
         public let blockSize: Int
         /// Maximum number of concurrent tasks (0 = auto-detect)
         public let maxConcurrency: Int
-        /// Hash matrix cache size limit
-        public let hashMatrixCacheSize: Int
-        /// Enable SIMD optimizations where available
-        public let enableSIMD: Bool
         /// Progress reporting callback
         public let progressCallback: (@Sendable (VectorizedProgress) -> Void)?
         
@@ -36,15 +32,11 @@ public final class VectorizedPrefilteringEngine: Sendable {
             optimizationLevel: OptimizationLevel = .balanced,
             blockSize: Int = 0,
             maxConcurrency: Int = 0,
-            hashMatrixCacheSize: Int = 10000,
-            enableSIMD: Bool = true,
             progressCallback: (@Sendable (VectorizedProgress) -> Void)? = nil
         ) {
             self.optimizationLevel = optimizationLevel
             self.blockSize = blockSize
             self.maxConcurrency = maxConcurrency
-            self.hashMatrixCacheSize = hashMatrixCacheSize
-            self.enableSIMD = enableSIMD
             self.progressCallback = progressCallback
         }
         
@@ -156,9 +148,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 return Configuration(
                     optimizationLevel: .aggressive,
                     blockSize: min(1000, max(100, elementCount / 4)),
-                    maxConcurrency: resources.availableCores,
-                    hashMatrixCacheSize: 5000,
-                    enableSIMD: true
+                    maxConcurrency: resources.availableCores
                 )
                 
             case .medium:
@@ -167,9 +157,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 return Configuration(
                     optimizationLevel: .balanced,
                     blockSize: min(2000, max(500, elementCount / 8)),
-                    maxConcurrency: optimalThreads,
-                    hashMatrixCacheSize: 10000,
-                    enableSIMD: true
+                    maxConcurrency: optimalThreads
                 )
                 
             case .large:
@@ -178,9 +166,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 return Configuration(
                     optimizationLevel: .conservative,
                     blockSize: min(5000, max(1000, elementCount / 16)),
-                    maxConcurrency: conservativeThreads,
-                    hashMatrixCacheSize: 15000,
-                    enableSIMD: true
+                    maxConcurrency: conservativeThreads
                 )
                 
             case .massive:
@@ -188,9 +174,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 return Configuration(
                     optimizationLevel: .conservative,
                     blockSize: min(10000, max(2000, elementCount / 32)),
-                    maxConcurrency: 2,  // Minimal parallelism
-                    hashMatrixCacheSize: 20000,
-                    enableSIMD: true
+                    maxConcurrency: 2  // Minimal parallelism
                 )
             }
         }
@@ -199,38 +183,16 @@ public final class VectorizedPrefilteringEngine: Sendable {
         public static func adjust(
             _ configuration: Configuration,
             cpuUtilization: Double,
-            memoryPressure: Double,
             processingRate: Double
         ) -> Configuration {
-            var adjustedConfig = configuration
-            
             // If CPU utilization is too high (>80%), reduce parallelism
-            if cpuUtilization > 0.8 {
-                let reducedConcurrency = max(1, Int(Double(adjustedConfig.maxConcurrency) * 0.7))
-                adjustedConfig = Configuration(
-                    optimizationLevel: adjustedConfig.optimizationLevel,
-                    blockSize: adjustedConfig.blockSize,
-                    maxConcurrency: reducedConcurrency,
-                    hashMatrixCacheSize: adjustedConfig.hashMatrixCacheSize,
-                    enableSIMD: adjustedConfig.enableSIMD,
-                    progressCallback: adjustedConfig.progressCallback
-                )
-            }
-            
-            // If memory pressure is high (>90%), reduce cache size
-            if memoryPressure > 0.9 {
-                let reducedCacheSize = Int(Double(adjustedConfig.hashMatrixCacheSize) * 0.5)
-                adjustedConfig = Configuration(
-                    optimizationLevel: adjustedConfig.optimizationLevel,
-                    blockSize: adjustedConfig.blockSize,
-                    maxConcurrency: adjustedConfig.maxConcurrency,
-                    hashMatrixCacheSize: reducedCacheSize,
-                    enableSIMD: adjustedConfig.enableSIMD,
-                    progressCallback: adjustedConfig.progressCallback
-                )
-            }
-            
-            return adjustedConfig
+            guard cpuUtilization > 0.8 else { return configuration }
+            return Configuration(
+                optimizationLevel: configuration.optimizationLevel,
+                blockSize: configuration.blockSize,
+                maxConcurrency: max(1, Int(Double(configuration.maxConcurrency) * 0.7)),
+                progressCallback: configuration.progressCallback
+            )
         }
     }
     
@@ -241,7 +203,6 @@ public final class VectorizedPrefilteringEngine: Sendable {
         public let candidatesFound: Int
         public let processingRate: Double? // blocks per second
         public let estimatedTimeRemaining: Double? // seconds
-        public let memoryUsage: Int // bytes
         
         public var completionPercentage: Double {
             return totalBlocks > 0 ? Double(blocksProcessed) / Double(totalBlocks) * 100.0 : 0.0
@@ -250,31 +211,12 @@ public final class VectorizedPrefilteringEngine: Sendable {
     
     // MARK: - Internal Types
     
-    /// Precomputed hash matrix for efficient similarity checks
-    private struct HashMatrix: Sendable {
-        let fingerprints: [ASTNodeFingerprint]
-        let hashValues: [[Int]]
-        let blockSize: Int
-        
-        init(fingerprints: [ASTNodeFingerprint], hashCount: Int, blockSize: Int) {
-            self.fingerprints = fingerprints
-            self.blockSize = blockSize
-            
-            // Precompute all hash values for better cache locality
-            self.hashValues = fingerprints.map { $0.fastHashValues(hashCount: hashCount) }
-        }
-        
-        func getHashValues(for index: Int) -> [Int] {
-            return hashValues[index]
-        }
-    }
-    
     /// Block of elements for batch processing
     private struct ProcessingBlock: Sendable {
         let startIndex: Int
         let endIndex: Int
         let elements: [CodeElement]
-        let matrix: HashMatrix
+        let fingerprints: [ASTNodeFingerprint]
         
         var size: Int { endIndex - startIndex }
     }
@@ -291,13 +233,11 @@ public final class VectorizedPrefilteringEngine: Sendable {
     // MARK: - Properties
     
     internal let configuration: Configuration
-    private let optimizedBloomFilter: OptimizedBloomFilter
     
     // MARK: - Initialization
     
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
-        self.optimizedBloomFilter = OptimizedBloomFilter(expectedElements: 10000, falsePositiveRate: 0.01)
     }
     
     // MARK: - Public Interface
@@ -318,7 +258,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
         // Extract fingerprints with progress reporting (this is the heavy operation)
         var fingerprints: [ASTNodeFingerprint] = []
         for (index, element) in elements.enumerated() {
-            let fingerprint = createFingerprint(from: element.treeNode)
+            let fingerprint = element.treeNode.extractFingerprint()
             fingerprints.append(fingerprint)
             
             // Report progress during fingerprint creation - more frequent for smaller projects
@@ -340,7 +280,6 @@ public final class VectorizedPrefilteringEngine: Sendable {
             }
         }
         
-        let hashCount = optimizedBloomFilter.hashFunctionCount
         // Blocks are scheduled dynamically, but block i also compares against every later block,
         // so early blocks carry most of the work. Keep at least 4 blocks per worker so that work
         // spreads across all cores even for small projects.
@@ -350,14 +289,8 @@ public final class VectorizedPrefilteringEngine: Sendable {
         let balancedBlockSize = max(1, (elements.count + workerCount * 4 - 1) / (workerCount * 4))
         let blockSize = min(determineOptimalBlockSize(for: elements.count), balancedBlockSize)
         
-        let hashMatrix = HashMatrix(
-            fingerprints: fingerprints,
-            hashCount: hashCount,
-            blockSize: blockSize
-        )
-        
         // Create processing blocks for parallel execution
-        let blocks = createProcessingBlocks(elements: elements, matrix: hashMatrix, blockSize: blockSize)
+        let blocks = createProcessingBlocks(elements: elements, fingerprints: fingerprints, blockSize: blockSize)
         
         // Report progress after block creation
         await reportProgress(
@@ -383,7 +316,6 @@ public final class VectorizedPrefilteringEngine: Sendable {
         
         // Auto-detect optimal block size based on system characteristics
         let processorCount = ProcessInfo.processInfo.processorCount
-        let memoryPressure = getMemoryPressure()
         
         switch configuration.optimizationLevel {
         case .conservative:
@@ -393,18 +325,14 @@ public final class VectorizedPrefilteringEngine: Sendable {
         case .aggressive:
             return min(1024, max(128, elementCount / processorCount))
         case .auto:
-            if memoryPressure > 0.8 {
-                return min(128, max(32, elementCount / (processorCount * 3)))
-            } else {
-                return min(512, max(128, elementCount / processorCount))
-            }
+            return min(512, max(128, elementCount / processorCount))
         }
     }
     
     /// Creates processing blocks for parallel execution
     private func createProcessingBlocks(
         elements: [CodeElement],
-        matrix: HashMatrix,
+        fingerprints: [ASTNodeFingerprint],
         blockSize: Int
     ) -> [ProcessingBlock] {
         var blocks: [ProcessingBlock] = []
@@ -418,7 +346,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 startIndex: startIndex,
                 endIndex: endIndex,
                 elements: blockElements,
-                matrix: matrix
+                fingerprints: fingerprints
             )
             blocks.append(block)
         }
@@ -499,7 +427,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 if let similarity = await vectorizedSimilarityCheck(
                     element1: element1,
                     element2: element2,
-                    matrix: block.matrix,
+                    fingerprints: block.fingerprints,
                     index1: block.startIndex + i,
                     index2: block.startIndex + j,
                     threshold: threshold
@@ -528,7 +456,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
                     if let similarity = await vectorizedSimilarityCheck(
                         element1: element1,
                         element2: element2,
-                        matrix: block.matrix,
+                        fingerprints: block.fingerprints,
                         index1: block.startIndex + i,
                         index2: otherBlock.startIndex + j,
                         threshold: threshold
@@ -553,7 +481,7 @@ public final class VectorizedPrefilteringEngine: Sendable {
     private func vectorizedSimilarityCheck(
         element1: CodeElement,
         element2: CodeElement,
-        matrix: HashMatrix,
+        fingerprints: [ASTNodeFingerprint],
         index1: Int,
         index2: Int,
         threshold: Double
@@ -565,8 +493,8 @@ public final class VectorizedPrefilteringEngine: Sendable {
         
         // Exact prefilter: skip pairs whose TSED upper bound (from label histograms) is below
         // the threshold. Unlike heuristic filters this never rejects a pair that would match.
-        let fingerprint1 = matrix.fingerprints[index1]
-        let fingerprint2 = matrix.fingerprints[index2]
+        let fingerprint1 = fingerprints[index1]
+        let fingerprint2 = fingerprints[index2]
         guard fingerprint1.tsedUpperBound(to: fingerprint2) >= threshold else {
             return nil
         }
@@ -575,46 +503,6 @@ public final class VectorizedPrefilteringEngine: Sendable {
         // (skipped when a cheaper exact lower bound already rules the pair out)
         return SimilarityCalculator()
             .similarity(between: element1.treeNode, and: element2.treeNode, atLeast: threshold)
-    }
-    
-    /// Calculates hash similarity using vectorized operations
-    private func calculateVectorizedHashSimilarity(hashes1: [Int], hashes2: [Int]) -> Double {
-        guard hashes1.count == hashes2.count, !hashes1.isEmpty else {
-            return 0.0
-        }
-        
-        if configuration.enableSIMD && hashes1.count >= 4 {
-            return calculateSIMDHashSimilarity(hashes1: hashes1, hashes2: hashes2)
-        } else {
-            return calculateStandardHashSimilarity(hashes1: hashes1, hashes2: hashes2)
-        }
-    }
-    
-    /// SIMD-optimized hash similarity calculation
-    private func calculateSIMDHashSimilarity(hashes1: [Int], hashes2: [Int]) -> Double {
-        // For now, use standard calculation - SIMD would require platform-specific implementation
-        return calculateStandardHashSimilarity(hashes1: hashes1, hashes2: hashes2)
-    }
-    
-    /// Standard hash similarity calculation
-    private func calculateStandardHashSimilarity(hashes1: [Int], hashes2: [Int]) -> Double {
-        var matches = 0
-        let count = hashes1.count
-        
-        for i in 0..<count {
-            let hash1 = hashes1[i]
-            let hash2 = hashes2[i]
-            
-            // Calculate similarity using bit operations
-            let xor = hash1 ^ hash2
-            let similarity = 1.0 - (Double(xor.nonzeroBitCount) / 64.0) // Assume 64-bit hashes
-            
-            if similarity > 0.5 { // Threshold for hash match
-                matches += 1
-            }
-        }
-        
-        return Double(matches) / Double(count)
     }
     
     /// Reports processing progress
@@ -636,93 +524,14 @@ public final class VectorizedPrefilteringEngine: Sendable {
             nil
         }
         
-        let memoryUsage = getMemoryUsage()
-        
         let progress = VectorizedProgress(
             blocksProcessed: blocksProcessed,
             totalBlocks: totalBlocks,
             candidatesFound: candidatesFound,
             processingRate: processingRate,
-            estimatedTimeRemaining: estimatedTimeRemaining,
-            memoryUsage: memoryUsage
+            estimatedTimeRemaining: estimatedTimeRemaining
         )
         
         progressCallback(progress)
     }
-    
-    /// Gets current memory pressure (0.0 - 1.0)
-    private func getMemoryPressure() -> Double {
-        // Simplified memory pressure calculation
-        // In a real implementation, this would use system APIs
-        return 0.5
-    }
-    
-    /// Gets current memory usage in bytes
-    private func getMemoryUsage() -> Int {
-        // Simplified memory usage calculation
-        // In a real implementation, this would use system APIs
-        return 1024 * 1024 // 1MB placeholder
-    }
-    
-    /// Creates an ASTNodeFingerprint from a TreeNode
-    private func createFingerprint(from treeNode: TreeNode) -> ASTNodeFingerprint {
-        var nodeTypeCounts: [String: Int] = [:]
-        var totalNodes = 0
-        var maxDepth = 0
-        var leafNodeCount = 0
-        
-        // Traverse the tree to collect statistics
-        func traverse(node: TreeNode, depth: Int) {
-            totalNodes += 1
-            maxDepth = max(maxDepth, depth)
-            
-            // Count node type
-            nodeTypeCounts[node.label, default: 0] += 1
-            
-            // Check if leaf node
-            if node.children.isEmpty {
-                leafNodeCount += 1
-            }
-            
-            // Traverse children
-            for child in node.children {
-                traverse(node: child, depth: depth + 1)
-            }
-        }
-        
-        traverse(node: treeNode, depth: 0)
-        
-        return ASTNodeFingerprint(
-            nodeTypeCounts: nodeTypeCounts,
-            totalNodes: totalNodes,
-            maxDepth: maxDepth,
-            leafNodeCount: leafNodeCount
-        )
-    }
 }
-
-// MARK: - Backward Compatibility
-
-extension VectorizedPrefilteringEngine {
-    /// Creates a VectorizedPrefilteringEngine with settings compatible with standard PrefilteringEngine
-    /// - Parameter standardEngine: The standard prefiltering engine to migrate from
-    /// - Returns: Equivalent vectorized prefiltering engine
-    public static func from(_ standardEngine: PrefilteringEngine) -> VectorizedPrefilteringEngine {
-        // Extract configuration from standard engine if possible
-        let configuration = Configuration(optimizationLevel: .balanced)
-        return VectorizedPrefilteringEngine(configuration: configuration)
-    }
-    
-    /// Provides a simplified interface matching the original PrefilteringEngine
-    /// - Parameters:
-    ///   - elements: Code elements to process
-    ///   - threshold: Similarity threshold
-    /// - Returns: Candidate pairs
-    public func prefilter(
-        elements: [CodeElement],
-        threshold: Double = 0.3
-    ) async throws -> [(CodeElement, CodeElement)] {
-        let candidates = try await findCandidates(elements: elements, threshold: threshold)
-        return candidates.map { ($0.0, $0.1) }
-    }
-} 

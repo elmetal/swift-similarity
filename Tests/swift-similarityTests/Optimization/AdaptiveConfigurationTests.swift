@@ -60,8 +60,6 @@ struct AdaptiveConfigurationTests {
         #expect(config.optimizationLevel == .aggressive)
         #expect(config.maxConcurrency > 0)
         #expect(config.blockSize >= 100 && config.blockSize <= 1000)
-        #expect(config.hashMatrixCacheSize == 5000)
-        #expect(config.enableSIMD == true)
     }
     
     @Test("Medium project configuration")
@@ -71,8 +69,6 @@ struct AdaptiveConfigurationTests {
         #expect(config.optimizationLevel == .balanced)
         #expect(config.maxConcurrency >= 2 && config.maxConcurrency <= 8)
         #expect(config.blockSize >= 500 && config.blockSize <= 2000)
-        #expect(config.hashMatrixCacheSize == 10000)
-        #expect(config.enableSIMD == true)
     }
     
     @Test("Large project configuration")
@@ -82,8 +78,6 @@ struct AdaptiveConfigurationTests {
         #expect(config.optimizationLevel == .conservative)
         #expect(config.maxConcurrency >= 2 && config.maxConcurrency <= 4)
         #expect(config.blockSize >= 1000 && config.blockSize <= 5000)
-        #expect(config.hashMatrixCacheSize == 15000)
-        #expect(config.enableSIMD == true)
     }
     
     @Test("Massive project configuration")
@@ -93,8 +87,6 @@ struct AdaptiveConfigurationTests {
         #expect(config.optimizationLevel == .conservative)
         #expect(config.maxConcurrency == 2) // Minimal parallelism
         #expect(config.blockSize >= 2000 && config.blockSize <= 10000)
-        #expect(config.hashMatrixCacheSize == 20000)
-        #expect(config.enableSIMD == true)
     }
     
     // MARK: - Configuration Adjustment Tests
@@ -110,7 +102,6 @@ struct AdaptiveConfigurationTests {
         let adjustedConfig = VectorizedPrefilteringEngine.AdaptiveConfiguration.adjust(
             originalConfig,
             cpuUtilization: 0.9,  // 90% CPU usage
-            memoryPressure: 0.5,
             processingRate: 100.0
         )
         
@@ -118,63 +109,21 @@ struct AdaptiveConfigurationTests {
         #expect(adjustedConfig.maxConcurrency >= 1) // Should not go below 1
     }
     
-    @Test("Memory pressure adjustment")
-    func testMemoryPressureAdjustment() {
-        let originalConfig = VectorizedPrefilteringEngine.Configuration(
-            optimizationLevel: .balanced,
-            hashMatrixCacheSize: 10000
-        )
-        
-        // High memory pressure should reduce cache size
-        let adjustedConfig = VectorizedPrefilteringEngine.AdaptiveConfiguration.adjust(
-            originalConfig,
-            cpuUtilization: 0.5,
-            memoryPressure: 0.95,  // 95% memory usage
-            processingRate: 100.0
-        )
-        
-        #expect(adjustedConfig.hashMatrixCacheSize < originalConfig.hashMatrixCacheSize)
-        #expect(adjustedConfig.hashMatrixCacheSize == 5000) // 50% of original
-    }
-    
-    @Test("Multiple adjustments")
-    func testMultipleAdjustments() {
-        let originalConfig = VectorizedPrefilteringEngine.Configuration(
-            optimizationLevel: .aggressive,
-            maxConcurrency: 12,
-            hashMatrixCacheSize: 15000
-        )
-        
-        // Both high CPU and memory pressure
-        let adjustedConfig = VectorizedPrefilteringEngine.AdaptiveConfiguration.adjust(
-            originalConfig,
-            cpuUtilization: 0.85,  // High CPU
-            memoryPressure: 0.92,  // High memory
-            processingRate: 50.0
-        )
-        
-        #expect(adjustedConfig.maxConcurrency < originalConfig.maxConcurrency)
-        #expect(adjustedConfig.hashMatrixCacheSize < originalConfig.hashMatrixCacheSize)
-    }
-    
     @Test("No adjustment needed")
     func testNoAdjustmentNeeded() {
         let originalConfig = VectorizedPrefilteringEngine.Configuration(
             optimizationLevel: .balanced,
-            maxConcurrency: 4,
-            hashMatrixCacheSize: 10000
+            maxConcurrency: 4
         )
         
         // Normal resource usage
         let adjustedConfig = VectorizedPrefilteringEngine.AdaptiveConfiguration.adjust(
             originalConfig,
             cpuUtilization: 0.6,  // Normal CPU
-            memoryPressure: 0.7,   // Normal memory
             processingRate: 100.0
         )
         
         #expect(adjustedConfig.maxConcurrency == originalConfig.maxConcurrency)
-        #expect(adjustedConfig.hashMatrixCacheSize == originalConfig.hashMatrixCacheSize)
     }
     
     // MARK: - Integration Tests
@@ -189,8 +138,6 @@ struct AdaptiveConfigurationTests {
             // All configurations should have valid values
             #expect(config.maxConcurrency > 0)
             #expect(config.blockSize > 0)
-            #expect(config.hashMatrixCacheSize > 0)
-            #expect(config.enableSIMD == true)
         }
     }
 } 
