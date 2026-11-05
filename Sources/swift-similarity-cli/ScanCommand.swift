@@ -51,6 +51,11 @@ struct ScanCommand: AsyncParsableCommand {
 
     @Flag(inversion: .prefixedNo, help: "Skip declarations preceded by a 'similarity-ignore' comment; --no-ignore-directives compares them too (default: on)")
     var ignoreDirectives: Bool?
+
+    // MARK: - Scoring Options
+
+    @Option(name: .long, help: ArgumentHelp("Cost of renaming a node (changing its syntax kind) in the tree edit distance; insertions and deletions cost 1. Lower values make structural variants score higher (default: \(ScanSettings.defaultRenameCost))", valueName: "cost"))
+    var renameCost: Double?
     
     // MARK: - Performance Optimization Options
     
@@ -105,6 +110,9 @@ struct ScanCommand: AsyncParsableCommand {
         guard settings.minTokens >= 0 else {
             throw ValidationError("Minimum tokens must be 0 (no limit) or more, got \(settings.minTokens).")
         }
+        guard settings.renameCost >= 0, settings.renameCost.isFinite else {
+            throw ValidationError("Rename cost must be a number 0 or more, got \(settings.renameCost).")
+        }
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
         }
@@ -136,6 +144,7 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Threshold: \(threshold)")
         printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
         printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
+        printDiagnostic("Rename cost: \(settings.renameCost)")
         printDiagnostic("Advanced metrics: \(advanced)")
         printDiagnostic("Optimization: \(optimization)")
         printDiagnostic("")
@@ -165,12 +174,14 @@ struct ScanCommand: AsyncParsableCommand {
                 try await calculateWithHierarchical(
                     elements: elements,
                     threshold: threshold,
+                    costs: settings.operationCosts,
                     optimizationLevel: optimizationLevel
                 )
             } else {
                 try await calculateWithOptimization(
                     elements: elements,
                     threshold: threshold,
+                    costs: settings.operationCosts,
                     optimizationLevel: optimizationLevel
                 )
             }
@@ -193,6 +204,7 @@ struct ScanCommand: AsyncParsableCommand {
                 elementType: elementType,
                 threshold: threshold,
                 advanced: advanced,
+                costs: settings.operationCosts,
                 printCodePreviews: showCode,
                 sortOrder: sortOrder
             )
@@ -246,7 +258,8 @@ struct ScanCommand: AsyncParsableCommand {
             bodyOnly: bodyOnly,
             ignoreDirectives: ignoreDirectives,
             sort: sort,
-            failOnDuplicates: failOnDuplicates
+            failOnDuplicates: failOnDuplicates,
+            renameCost: renameCost
         )
     }
     
@@ -267,6 +280,7 @@ struct ScanCommand: AsyncParsableCommand {
         ignoreDirectives = settings.ignoreDirectives
         sort = settings.sort
         failOnDuplicates = settings.failOnDuplicates
+        renameCost = settings.renameCost
     }
     
     /// Accepted `--element-type` values, for help and error messages.
@@ -290,6 +304,7 @@ struct ScanCommand: AsyncParsableCommand {
     private func calculateWithOptimization(
         elements: [CodeElement],
         threshold: Double,
+        costs: APTED.OperationCosts,
         optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
@@ -334,14 +349,16 @@ struct ScanCommand: AsyncParsableCommand {
                     optimizationLevel: adaptiveConfig.optimizationLevel,
                     blockSize: adaptiveConfig.blockSize,
                     maxConcurrency: threads,
-                    progressCallback: progressCallback
+                    progressCallback: progressCallback,
+                    costs: costs
                 )
             } else {
                 adaptiveConfig = VectorizedPrefilteringEngine.Configuration(
                     optimizationLevel: adaptiveConfig.optimizationLevel,
                     blockSize: adaptiveConfig.blockSize,
                     maxConcurrency: adaptiveConfig.maxConcurrency,
-                    progressCallback: progressCallback
+                    progressCallback: progressCallback,
+                    costs: costs
                 )
             }
             vectorizedConfig = adaptiveConfig
@@ -356,7 +373,8 @@ struct ScanCommand: AsyncParsableCommand {
                 optimizationLevel: optimizationLevel,
                 blockSize: 0, // Auto-detect
                 maxConcurrency: threads > 0 ? threads : 0, // Auto-detect if not specified
-                progressCallback: progressCallback
+                progressCallback: progressCallback,
+                costs: costs
             )
         }
         
@@ -393,6 +411,7 @@ struct ScanCommand: AsyncParsableCommand {
     private func calculateWithHierarchical(
         elements: [CodeElement],
         threshold: Double,
+        costs: APTED.OperationCosts,
         optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
@@ -400,7 +419,7 @@ struct ScanCommand: AsyncParsableCommand {
         
         // Determine project scale and configuration
         let scale = VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.from(elementCount: elements.count)
-        let hierarchicalConfig = HierarchicalProcessor.Configuration.optimal(for: scale)
+        let hierarchicalConfig = HierarchicalProcessor.Configuration.optimal(for: scale, costs: costs)
         
         // Set up progress reporting for hierarchical processing
         let progressCallback: (@Sendable (HierarchicalProcessor.HierarchicalProgress) -> Void)?
@@ -431,7 +450,7 @@ struct ScanCommand: AsyncParsableCommand {
         }
         
         // Create vectorized engine configuration for hierarchical processor
-        let vectorizedConfig = if optimizationLevel == .auto {
+        let baseConfig = if optimizationLevel == .auto {
             VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: elements.count)
         } else {
             VectorizedPrefilteringEngine.Configuration(
@@ -440,6 +459,12 @@ struct ScanCommand: AsyncParsableCommand {
                 maxConcurrency: threads > 0 ? threads : 0
             )
         }
+        let vectorizedConfig = VectorizedPrefilteringEngine.Configuration(
+            optimizationLevel: baseConfig.optimizationLevel,
+            blockSize: baseConfig.blockSize,
+            maxConcurrency: baseConfig.maxConcurrency,
+            costs: costs
+        )
         
         // Initialize hierarchical processor
         let processor = HierarchicalProcessor(

@@ -27,17 +27,21 @@ public final class VectorizedPrefilteringEngine: Sendable {
         public let maxConcurrency: Int
         /// Progress reporting callback
         public let progressCallback: (@Sendable (VectorizedProgress) -> Void)?
+        /// Tree edit operation costs used for TSED and for its exact bounds
+        public let costs: APTED.OperationCosts
         
         public init(
             optimizationLevel: OptimizationLevel = .balanced,
             blockSize: Int = 0,
             maxConcurrency: Int = 0,
-            progressCallback: (@Sendable (VectorizedProgress) -> Void)? = nil
+            progressCallback: (@Sendable (VectorizedProgress) -> Void)? = nil,
+            costs: APTED.OperationCosts = APTED.OperationCosts()
         ) {
             self.optimizationLevel = optimizationLevel
             self.blockSize = blockSize
             self.maxConcurrency = maxConcurrency
             self.progressCallback = progressCallback
+            self.costs = costs
         }
         
         /// Creates configuration optimized for the given element count
@@ -184,7 +188,8 @@ public final class VectorizedPrefilteringEngine: Sendable {
                 optimizationLevel: configuration.optimizationLevel,
                 blockSize: configuration.blockSize,
                 maxConcurrency: max(1, Int(Double(configuration.maxConcurrency) * 0.7)),
-                progressCallback: configuration.progressCallback
+                progressCallback: configuration.progressCallback,
+                costs: configuration.costs
             )
         }
     }
@@ -410,13 +415,13 @@ public final class VectorizedPrefilteringEngine: Sendable {
         // the threshold. Unlike heuristic filters this never rejects a pair that would match.
         let fingerprint1 = fingerprints[index1]
         let fingerprint2 = fingerprints[index2]
-        guard fingerprint1.tsedUpperBound(to: fingerprint2) >= threshold else {
+        guard fingerprint1.tsedUpperBound(to: fingerprint2, costs: configuration.costs) >= threshold else {
             return nil
         }
         
         // TSED: tree edit distance normalized by the larger tree size
         // (skipped when a cheaper exact lower bound already rules the pair out)
-        return SimilarityCalculator()
+        return SimilarityCalculator(configuration: .init(aptedCosts: configuration.costs))
             .similarity(between: element1.treeNode, and: element2.treeNode, atLeast: threshold)
     }
     

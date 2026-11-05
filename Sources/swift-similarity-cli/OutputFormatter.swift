@@ -8,6 +8,8 @@ struct OutputFormatter {
     let elementType: String
     let threshold: Double
     let advanced: Bool
+    /// Tree edit operation costs used for the TSED scores
+    let costs: APTED.OperationCosts
     let printCodePreviews: Bool
     let sortOrder: SimilarityRanking.SortOrder
     
@@ -15,7 +17,7 @@ struct OutputFormatter {
     /// They are reported alongside the TSED score and do not affect which pairs are found.
     private func advancedMetrics(for pair: (CodeElement, CodeElement, Double)) -> AdvancedMetrics? {
         guard advanced else { return nil }
-        let result = AdvancedSimilarityMetrics().calculateAdvancedSimilarity(between: pair.0.treeNode, and: pair.1.treeNode)
+        let result = AdvancedSimilarityMetrics(configuration: .init(aptedCosts: costs)).calculateAdvancedSimilarity(between: pair.0.treeNode, and: pair.1.treeNode)
         return AdvancedMetrics(
             structural: result.structuralSimilarity * 100,
             label: result.labelSimilarity * 100,
@@ -43,6 +45,7 @@ struct OutputFormatter {
                 totalPairs: similarPairs.count,
                 elementType: elementType,
                 threshold: threshold,
+                renameCost: costs.substitution,
                 advancedMetrics: advanced,
                 sortOrder: sortOrder.rawValue
             ),
@@ -90,6 +93,7 @@ struct OutputFormatter {
         let elementDescription = elementType.lowercased() == "all" ? "Elements (All Types)" : "\(elementType.capitalized) Elements"
         output += "Similar \(elementDescription) Found: \(similarPairs.count)\n"
         output += "Threshold: \(threshold)\n"
+        output += "Rename Cost: \(costs.substitution)\n"
         output += "Advanced Metrics: \(advanced)\n"
         output += "\n"
         

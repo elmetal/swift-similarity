@@ -26,6 +26,8 @@ public final class HierarchicalProcessor: Sendable {
         public let enableEarlyTermination: Bool
         /// Target result count for early termination (0 = disabled)
         public let targetResultCount: Int
+        /// Tree edit operation costs used for TSED and for its exact bounds
+        public let costs: APTED.OperationCosts
         
         public init(
             quickStageOffset: Double = 0.2,
@@ -34,8 +36,10 @@ public final class HierarchicalProcessor: Sendable {
             enableSampling: Bool = false,
             samplingRatio: Double = 0.8,
             enableEarlyTermination: Bool = true,
-            targetResultCount: Int = 1000
+            targetResultCount: Int = 1000,
+            costs: APTED.OperationCosts = APTED.OperationCosts()
         ) {
+            self.costs = costs
             self.quickStageOffset = quickStageOffset
             self.mediumStageOffset = mediumStageOffset
             self.maxCandidatesPerStage = maxCandidatesPerStage
@@ -47,7 +51,10 @@ public final class HierarchicalProcessor: Sendable {
         
         /// Optimal configuration for different project scales.
         /// None of the presets sample elements or cap candidates, so no similar pair is dropped.
-        public static func optimal(for scale: VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale) -> Configuration {
+        public static func optimal(
+            for scale: VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale,
+            costs: APTED.OperationCosts = APTED.OperationCosts()
+        ) -> Configuration {
             switch scale {
             case .small:
                 return Configuration(
@@ -55,7 +62,8 @@ public final class HierarchicalProcessor: Sendable {
                     mediumStageOffset: 0.0,  // Use exact threshold for Stage 2
                     maxCandidatesPerStage: 0,
                     enableSampling: false,
-                    enableEarlyTermination: false
+                    enableEarlyTermination: false,
+                    costs: costs
                 )
             case .medium:
                 return Configuration(
@@ -64,7 +72,8 @@ public final class HierarchicalProcessor: Sendable {
                     maxCandidatesPerStage: 0,
                     enableSampling: false,
                     enableEarlyTermination: true,
-                    targetResultCount: 2000
+                    targetResultCount: 2000,
+                    costs: costs
                 )
             case .large:
                 return Configuration(
@@ -73,7 +82,8 @@ public final class HierarchicalProcessor: Sendable {
                     maxCandidatesPerStage: 0,
                     enableSampling: false,
                     enableEarlyTermination: true,
-                    targetResultCount: 1200  // Increased from 1000
+                    targetResultCount: 1200,  // Increased from 1000
+                    costs: costs
                 )
             case .massive:
                 return Configuration(
@@ -82,7 +92,8 @@ public final class HierarchicalProcessor: Sendable {
                     maxCandidatesPerStage: 0,
                     enableSampling: false,
                     enableEarlyTermination: true,
-                    targetResultCount: 800  // Increased from 500
+                    targetResultCount: 800,  // Increased from 500
+                    costs: costs
                 )
             }
         }
@@ -282,7 +293,7 @@ public final class HierarchicalProcessor: Sendable {
                 
                 processedPairs += 1
                 guard !element1.isNested(with: element2),
-                      fingerprints[i].tsedUpperBound(to: fingerprints[j]) >= threshold else {
+                      fingerprints[i].tsedUpperBound(to: fingerprints[j], costs: configuration.costs) >= threshold else {
                     continue
                 }
                 candidates.append((element1, element2))
@@ -418,7 +429,7 @@ public final class HierarchicalProcessor: Sendable {
     /// TSED score of the pair if it reaches `threshold`, using the same method as
     /// VectorizedPrefilteringEngine (an exact lower bound skips hopeless pairs).
     private func calculatePreciseSimilarity(_ element1: CodeElement, _ element2: CodeElement, threshold: Double) -> Double? {
-        return SimilarityCalculator()
+        return SimilarityCalculator(configuration: .init(aptedCosts: configuration.costs))
             .similarity(between: element1.treeNode, and: element2.treeNode, atLeast: threshold)
     }
     

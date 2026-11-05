@@ -18,6 +18,7 @@ import Foundation
 /// ignore_directives = true    # --ignore-directives / --no-ignore-directives
 /// sort = "similarity"         # --sort
 /// fail_on_duplicates = false  # --fail-on-duplicates / --no-fail-on-duplicates
+/// rename_cost = 1.0           # --rename-cost
 /// ```
 ///
 /// `no_ignore_directives = true`, mirroring the `--no-ignore-directives` flag, is accepted as the
@@ -37,6 +38,7 @@ public struct SimilarityConfig: Equatable, Sendable {
     public var ignoreDirectives: Bool?
     public var sort: String?
     public var failOnDuplicates: Bool?
+    public var renameCost: Double?
     /// Keys the file sets that are not supported, for warnings.
     public var unknownKeys: [String] = []
 
@@ -49,8 +51,10 @@ public struct SimilarityConfig: Equatable, Sendable {
         bodyOnly: Bool? = nil,
         ignoreDirectives: Bool? = nil,
         sort: String? = nil,
-        failOnDuplicates: Bool? = nil
+        failOnDuplicates: Bool? = nil,
+        renameCost: Double? = nil
     ) {
+        self.renameCost = renameCost
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -137,6 +141,11 @@ public struct SimilarityConfig: Equatable, Sendable {
                 config.sort = try string()
             case "fail_on_duplicates":
                 config.failOnDuplicates = try bool()
+            case "rename_cost":
+                guard case .number(let number) = value else {
+                    throw ParseError(line: line, message: "'\(key)' must be a number")
+                }
+                config.renameCost = number
             case "exclude":
                 switch value {
                 case .string(let string):
@@ -163,6 +172,8 @@ public struct ScanSettings: Equatable, Sendable {
     public static let defaultMinLines = 5
     public static let defaultMinTokens = 0
     public static let defaultSort = "similarity"
+    /// Cost of renaming (relabeling) a node, as in the TSED paper (arXiv:2404.08817).
+    public static let defaultRenameCost = 1.0
 
     public var threshold: Double
     public var elementType: String
@@ -174,6 +185,8 @@ public struct ScanSettings: Equatable, Sendable {
     public var ignoreDirectives: Bool
     public var sort: String
     public var failOnDuplicates: Bool
+    /// Cost of a node rename in the tree edit distance; insertions and deletions cost 1.
+    public var renameCost: Double
 
     public init(
         threshold: Double = defaultThreshold,
@@ -184,8 +197,10 @@ public struct ScanSettings: Equatable, Sendable {
         bodyOnly: Bool = false,
         ignoreDirectives: Bool = true,
         sort: String = defaultSort,
-        failOnDuplicates: Bool = false
+        failOnDuplicates: Bool = false,
+        renameCost: Double = defaultRenameCost
     ) {
+        self.renameCost = renameCost
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -210,8 +225,14 @@ public struct ScanSettings: Equatable, Sendable {
             bodyOnly: commandLine.bodyOnly ?? file?.bodyOnly ?? defaults.bodyOnly,
             ignoreDirectives: commandLine.ignoreDirectives ?? file?.ignoreDirectives ?? defaults.ignoreDirectives,
             sort: commandLine.sort ?? file?.sort ?? defaults.sort,
-            failOnDuplicates: commandLine.failOnDuplicates ?? file?.failOnDuplicates ?? defaults.failOnDuplicates
+            failOnDuplicates: commandLine.failOnDuplicates ?? file?.failOnDuplicates ?? defaults.failOnDuplicates,
+            renameCost: commandLine.renameCost ?? file?.renameCost ?? defaults.renameCost
         )
+    }
+
+    /// Tree edit operation costs for these settings: unit insertion and deletion, `renameCost` renames.
+    public var operationCosts: APTED.OperationCosts {
+        APTED.OperationCosts(insertion: 1.0, deletion: 1.0, substitution: renameCost)
     }
 }
 
