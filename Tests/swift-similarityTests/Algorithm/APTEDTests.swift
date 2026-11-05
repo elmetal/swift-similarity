@@ -261,9 +261,25 @@ func testSequenceLowerBound(costs: APTED.OperationCosts) {
         #expect(apted.lowerBound(between: tree1, and: tree2) <= apted.editDistance(between: tree1, and: tree2) + 1e-9)
     }
     
-    // The bound can be strictly lower: same preorder sequence, different structure
+    // The early exit must also stay a valid bound.
+    for _ in 0..<300 {
+        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let limit = Double(Int.random(in: 0...6, using: &rng))
+        #expect(apted.lowerBound(between: tree1, and: tree2, exceeding: limit) <= apted.editDistance(between: tree1, and: tree2) + 1e-9)
+    }
+}
+
+@Test("The postorder sequence catches structure changes the preorder sequence misses")
+func testPostorderLowerBound() {
+    let apted = APTED()
+    // a(b(c)) and a(b, c) have the same preorder sequence a b c, but postorder c b a vs b c a.
     let chain = SimpleTreeNode(label: "a", children: [SimpleTreeNode(label: "b", children: [SimpleTreeNode(label: "c")])])
     let siblings = SimpleTreeNode(label: "a", children: [SimpleTreeNode(label: "b"), SimpleTreeNode(label: "c")])
-    #expect(apted.lowerBound(between: chain, and: siblings) == 0)
-    #expect(apted.editDistance(between: chain, and: siblings) > 0)
+    #expect(apted.editDistance(between: chain, and: siblings) == 2)
+    #expect(apted.lowerBound(between: chain, and: siblings) == 2)
+    // With a limit below the preorder bound (0 here) nothing is skipped; with a negative limit the
+    // preorder bound is returned on its own.
+    #expect(apted.lowerBound(between: chain, and: siblings, exceeding: 0) == 2)
+    #expect(apted.lowerBound(between: chain, and: siblings, exceeding: -1) == 0)
 }

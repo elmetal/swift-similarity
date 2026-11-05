@@ -65,14 +65,30 @@ public class APTED {
     
     /// A lower bound of `editDistance(between:and:)` computed in O(|T1|·|T2|) time.
     ///
-    /// It is the string edit distance between the preorder label sequences, using the same costs.
-    /// Deleting, inserting or renaming a tree node deletes, inserts or substitutes exactly one
-    /// symbol of the preorder sequence (a deleted node's children take its place in order), so
-    /// every tree edit script maps to a string edit script of the same cost.
-    public func lowerBound(between tree1: TreeNode, and tree2: TreeNode) -> Double {
+    /// It is the larger of the string edit distances between the preorder and between the postorder
+    /// label sequences, using the same costs. Deleting, inserting or renaming a tree node deletes,
+    /// inserts or substitutes exactly one symbol of either sequence (a deleted node's children take
+    /// its place in order), so every tree edit script maps to a string edit script of the same cost.
+    /// The two orders catch different structural changes: moving a node between parent and sibling
+    /// can leave one sequence unchanged but not both.
+    ///
+    /// - Parameter limit: When the preorder bound already exceeds `limit`, it is returned without
+    ///   computing the postorder bound. Pass the largest distance the caller can accept.
+    public func lowerBound(between tree1: TreeNode, and tree2: TreeNode, exceeding limit: Double? = nil) -> Double {
         var labelIds: [String: Int] = [:]
-        let sequence1 = preorderLabelIds(tree1, &labelIds)
-        let sequence2 = preorderLabelIds(tree2, &labelIds)
+        let pre1 = labelSequence(tree1, postorder: false, &labelIds)
+        let pre2 = labelSequence(tree2, postorder: false, &labelIds)
+        let preorderBound = stringEditDistance(pre1, pre2)
+        if let limit, preorderBound > limit {
+            return preorderBound
+        }
+        let post1 = labelSequence(tree1, postorder: true, &labelIds)
+        let post2 = labelSequence(tree2, postorder: true, &labelIds)
+        return max(preorderBound, stringEditDistance(post1, post2))
+    }
+    
+    /// Edit distance between two label sequences with this calculator's costs (two-row DP).
+    private func stringEditDistance(_ sequence1: [Int], _ sequence2: [Int]) -> Double {
         let del = costs.deletion
         let ins = costs.insertion
         let sub = costs.substitution
@@ -91,18 +107,29 @@ public class APTED {
         return previous[sequence2.count]
     }
     
-    private func preorderLabelIds(_ root: TreeNode, _ labelIds: inout [String: Int]) -> [Int] {
+    /// Label ids of the tree's nodes in preorder or postorder (iterative, for deep ASTs).
+    private func labelSequence(_ root: TreeNode, postorder: Bool, _ labelIds: inout [String: Int]) -> [Int] {
+        func id(_ label: String) -> Int {
+            if let id = labelIds[label] { return id }
+            let id = labelIds.count
+            labelIds[label] = id
+            return id
+        }
         var result: [Int] = []
-        var stack: [TreeNode] = [root]
-        while let node = stack.popLast() {
-            if let id = labelIds[node.label] {
-                result.append(id)
-            } else {
-                let id = labelIds.count
-                labelIds[node.label] = id
-                result.append(id)
+        if postorder {
+            // Reverse of a preorder that visits children right to left.
+            var stack: [TreeNode] = [root]
+            while let node = stack.popLast() {
+                result.append(id(node.label))
+                stack.append(contentsOf: node.children)
             }
-            stack.append(contentsOf: node.children.reversed())
+            result.reverse()
+        } else {
+            var stack: [TreeNode] = [root]
+            while let node = stack.popLast() {
+                result.append(id(node.label))
+                stack.append(contentsOf: node.children.reversed())
+            }
         }
         return result
     }
