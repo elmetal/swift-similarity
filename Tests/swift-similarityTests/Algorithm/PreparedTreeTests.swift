@@ -42,39 +42,16 @@ func testPreparedTreeStructure() {
 }
 
 /// Deterministic pseudo-random generator so failures are reproducible.
-private struct SplitMix64: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9e3779b97f4a7c15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
-        z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
-        return z ^ (z >> 31)
-    }
-}
-
-private func randomTree(size: Int, labels: [String], rng: inout SplitMix64) -> TreeNode {
-    let label = labels.randomElement(using: &rng)!
-    var remaining = size - 1
-    var children: [TreeNode] = []
-    while remaining > 0 {
-        let childSize = Int.random(in: 1...remaining, using: &rng)
-        children.append(randomTree(size: childSize, labels: labels, rng: &rng))
-        remaining -= childSize
-    }
-    return SimpleTreeNode(label: label, children: children)
-}
-
 @Test("Trees prepared once give the same results as preparing every pair", arguments: [
     APTED.OperationCosts(),
     APTED.OperationCosts(insertion: 1.0, deletion: 1.0, substitution: 0.3),
     APTED.OperationCosts(insertion: 0.8, deletion: 2.0, substitution: 1.5),
 ])
 func testPreparedTreesMatchPerPairPreparation(costs: APTED.OperationCosts) {
-    var rng = SplitMix64(state: 2024)
+    var rng = SplitMix64(seed: 2024)
     // Labels differ per tree so the shared interner sees ids assigned in many different orders.
     let trees = (0..<40).map { index in
-        randomTree(size: Int.random(in: 1...14, using: &rng), labels: ["a", "b", "c", "d\(index % 3)"], rng: &rng)
+        randomTree(size: Int.random(in: 1...14, using: &rng), labels: ["a", "b", "c", "d\(index % 3)"], using: &rng)
     }
     var labels = LabelInterner()
     let prepared = trees.map { PreparedTree($0, labels: &labels) }
@@ -126,9 +103,9 @@ private func referenceIndex(_ root: TreeNode, mirrored: Bool, labels: inout Labe
 
 @Test("Prepared tree indexes match a recursive construction on random trees")
 func testPreparedTreeMatchesRecursiveConstruction() {
-    var rng = SplitMix64(state: 7)
+    var rng = SplitMix64(seed: 7)
     for _ in 0..<300 {
-        let tree = randomTree(size: Int.random(in: 1...30, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let tree = randomTree(size: Int.random(in: 1...30, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
         var labels = LabelInterner()
         let prepared = PreparedTree(tree, labels: &labels)
         for (index, mirrored) in [(prepared.indexed, false), (prepared.mirrored, true)] {
@@ -150,9 +127,9 @@ func testPreparedTreeMatchesRecursiveConstruction() {
     APTED.OperationCosts(insertion: 0.8, deletion: 2.0, substitution: 1.5),
 ])
 func testHistogramBoundMatchesFingerprint(costs: APTED.OperationCosts) {
-    var rng = SplitMix64(state: 11)
+    var rng = SplitMix64(seed: 11)
     let trees = (0..<40).map { _ in
-        randomTree(size: Int.random(in: 1...20, using: &rng), labels: ["a", "b", "c", "d", "e"], rng: &rng)
+        randomTree(size: Int.random(in: 1...20, using: &rng), labels: ["a", "b", "c", "d", "e"], using: &rng)
     }
     var labels = LabelInterner()
     let prepared = trees.map { PreparedTree($0, labels: &labels) }
@@ -176,11 +153,11 @@ func testHistogramBoundMatchesFingerprint(costs: APTED.OperationCosts) {
     APTED.OperationCosts(insertion: 0.8, deletion: 1.3, substitution: 0.0),
 ])
 func testLimitedLowerBound(costs: APTED.OperationCosts) {
-    var rng = SplitMix64(state: 31)
+    var rng = SplitMix64(seed: 31)
     let apted = APTED(costs: costs)
     for _ in 0..<400 {
-        let tree1 = randomTree(size: Int.random(in: 1...25, using: &rng), labels: ["a", "b", "c"], rng: &rng)
-        let tree2 = randomTree(size: Int.random(in: 1...25, using: &rng), labels: ["a", "b", "c"], rng: &rng)
+        let tree1 = randomTree(size: Int.random(in: 1...25, using: &rng), labels: ["a", "b", "c"], using: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...25, using: &rng), labels: ["a", "b", "c"], using: &rng)
         let full = apted.lowerBound(between: tree1, and: tree2)
         let distance = apted.editDistance(between: tree1, and: tree2)
         for limit in [0.0, 0.5, 1.0, 2.0, 3.7, 6.0, 10.0, 40.0] {

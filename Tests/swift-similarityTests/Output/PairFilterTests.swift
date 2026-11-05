@@ -49,11 +49,7 @@ func testCodeFilter() {
 
 @Test("Declarations skipped by similarity-ignore are reported with their comment")
 func testIgnoredDeclarations() throws {
-    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("IgnoredDeclarations-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try """
+    let source = """
         // similarity-ignore: generated
         func generated() { print(1) }
 
@@ -63,10 +59,9 @@ func testIgnoredDeclarations() throws {
         }
 
         func normal() { print(1) }
-        """.write(to: directory.appendingPathComponent("Source.swift"), atomically: true, encoding: .utf8)
+        """
 
-    let functions = try CodeElementExtractor(configuration: .init(elementTypes: [.function], minLines: 0))
-        .extract(fromPaths: [directory.path])
+    let functions = try extraction(of: source, configuration: .init(elementTypes: [.function], minLines: 0))
     #expect(functions.elements.map(\.name) == ["kept", "normal"])
     // Only declarations of the selected element types are listed.
     #expect(functions.ignored.map(\.name) == ["generated"])
@@ -75,12 +70,11 @@ func testIgnoredDeclarations() throws {
     #expect(generated.comment == "// similarity-ignore: generated")
     #expect(generated.startLine == 2 && generated.endLine == 2)
 
-    let all = try CodeElementExtractor(configuration: .init(minLines: 0)).extract(fromPaths: [directory.path])
+    let all = try extraction(of: source, configuration: .init(minLines: 0))
     #expect(all.ignored.map(\.name) == ["generated", "Ignored"])
     #expect(all.ignored.last?.comment == "/* similarity-ignore */")
 
-    let notHonored = try CodeElementExtractor(configuration: .init(minLines: 0, respectIgnoreDirectives: false))
-        .extract(fromPaths: [directory.path])
+    let notHonored = try extraction(of: source, configuration: .init(minLines: 0, respectIgnoreDirectives: false))
     #expect(notHonored.ignored.isEmpty)
     #expect(notHonored.elements.count == 4)
 }

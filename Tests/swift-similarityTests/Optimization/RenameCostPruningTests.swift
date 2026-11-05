@@ -10,33 +10,11 @@ import Foundation
 
 // MARK: - Helpers
 
-private struct SeededGenerator: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9e3779b97f4a7c15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
-        z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
-        return z ^ (z >> 31)
-    }
-}
-
 private let labels = ["a", "b", "c", "d", "e"]
-
-private func randomTree(size: Int, rng: inout SeededGenerator) -> TreeNode {
-    var remaining = size - 1
-    var children: [TreeNode] = []
-    while remaining > 0 {
-        let childSize = Int.random(in: 1...remaining, using: &rng)
-        children.append(randomTree(size: childSize, rng: &rng))
-        remaining -= childSize
-    }
-    return SimpleTreeNode(label: labels.randomElement(using: &rng)!, children: children)
-}
 
 /// A copy of `tree` with some nodes relabeled, some leaves added and some leaves removed, so that
 /// variants of one base tree land on both sides of the threshold.
-private func mutate(_ tree: TreeNode, rate: Double, rng: inout SeededGenerator) -> TreeNode {
+private func mutate(_ tree: TreeNode, rate: Double, rng: inout SplitMix64) -> TreeNode {
     var children: [TreeNode] = []
     for child in tree.children {
         if child.children.isEmpty && Double.random(in: 0..<1, using: &rng) < rate / 2 {
@@ -52,10 +30,10 @@ private func mutate(_ tree: TreeNode, rate: Double, rng: inout SeededGenerator) 
 }
 
 private func makeElements(seed: UInt64) -> [CodeElement] {
-    var rng = SeededGenerator(state: seed)
+    var rng = SplitMix64(seed: seed)
     var elements: [CodeElement] = []
     for base in 0..<4 {
-        let tree = randomTree(size: Int.random(in: 8...14, using: &rng), rng: &rng)
+        let tree = randomTree(size: Int.random(in: 8...14, using: &rng), labels: labels, using: &rng)
         for variant in 0..<4 {
             let name = "b\(base)v\(variant)"
             elements.append(CodeElement(

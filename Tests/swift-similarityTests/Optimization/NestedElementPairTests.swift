@@ -20,11 +20,7 @@ func a() { print(1) }; func b() { print(1) }
 """
 
 private func extractAll() throws -> [CodeElement] {
-    let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("NestedPairs-\(UUID().uuidString).swift")
-    try nestedSource.write(to: url, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: url) }
-    return try CodeElementExtractor().extractElements(from: url.path)
+    try extractElements(from: nestedSource)
 }
 
 private func nestedPairKeys(_ elements: [CodeElement]) -> Set<String> {

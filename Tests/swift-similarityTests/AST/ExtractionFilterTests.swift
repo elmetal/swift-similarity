@@ -2,14 +2,6 @@ import Testing
 import Foundation
 @testable import swift_similarity
 
-private func extract(_ source: String, _ configuration: CodeElementExtractor.Configuration) throws -> [CodeElement] {
-    let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("ExtractionFilter-\(UUID().uuidString).swift")
-    try source.write(to: url, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: url) }
-    return try CodeElementExtractor(configuration: configuration).extractElements(from: url.path)
-}
-
 private func names(_ elements: [CodeElement]) -> Set<String> {
     Set(elements.map(\.name))
 }
@@ -27,9 +19,9 @@ func testMinLinesFilter() throws {
         print(a + b)
     }
     """
-    #expect(names(try extract(source, .init(elementTypes: [.function]))) == ["oneLiner", "threeLines", "fiveLines"])
-    #expect(names(try extract(source, .init(elementTypes: [.function], minLines: 3))) == ["threeLines", "fiveLines"])
-    #expect(names(try extract(source, .init(elementTypes: [.function], minLines: 5))) == ["fiveLines"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function]))) == ["oneLiner", "threeLines", "fiveLines"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function], minLines: 3))) == ["threeLines", "fiveLines"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function], minLines: 5))) == ["fiveLines"])
 }
 
 @Test("minTokens counts the compared syntax")
@@ -39,10 +31,10 @@ func testMinTokensFilter() throws {
     func large(value: Int) -> Int { let doubled = value * 2; return doubled + 1 }
     """
     // `func small() { print(1) }` has 10 tokens, its body `{ print(1) }` has 6.
-    #expect(names(try extract(source, .init(elementTypes: [.function], minTokens: 10))) == ["small", "large"])
-    #expect(names(try extract(source, .init(elementTypes: [.function], minTokens: 11))) == ["large"])
-    #expect(names(try extract(source, .init(elementTypes: [.function], minTokens: 6, compareBodyOnly: true))) == ["small", "large"])
-    #expect(names(try extract(source, .init(elementTypes: [.function], minTokens: 7, compareBodyOnly: true))) == ["large"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function], minTokens: 10))) == ["small", "large"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function], minTokens: 11))) == ["large"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function], minTokens: 6, compareBodyOnly: true))) == ["small", "large"])
+    #expect(names(try extractElements(from: source, configuration: .init(elementTypes: [.function], minTokens: 7, compareBodyOnly: true))) == ["large"])
 }
 
 @Test("similarity-ignore comments skip the following declaration")
@@ -71,11 +63,11 @@ func testIgnoreDirective() throws {
     func afterTrailing() { print(1) }
     """
     let all = CodeElementExtractor.Configuration(respectIgnoreDirectives: false)
-    #expect(names(try extract(source, all)).count == 8)
+    #expect(names(try extractElements(from: source, configuration: all)).count == 8)
 
     // Only the marked declaration is skipped, not the declarations nested in it. A comment at
     // the end of the previous line belongs to that line, not to the next declaration.
-    #expect(names(try extract(source, .init())) == ["nested", "kept", "trailing", "afterTrailing"])
+    #expect(names(try extractElements(from: source, configuration: .init())) == ["nested", "kept", "trailing", "afterTrailing"])
 }
 
 @Test("compareBodyOnly compares only bodies")
@@ -89,8 +81,8 @@ func testCompareBodyOnly() throws {
         func area() -> Double { side * side }
     }
     """
-    let whole = try extract(source, .init())
-    let bodies = try extract(source, .init(compareBodyOnly: true))
+    let whole = try extractElements(from: source, configuration: .init())
+    let bodies = try extractElements(from: source, configuration: .init(compareBodyOnly: true))
 
     // A protocol requirement has no body and is skipped.
     #expect(whole.filter { $0.name == "area" }.count == 2)
@@ -118,8 +110,8 @@ func testCompareBodyOnlyIgnoresSignatures() throws {
     }
     """
     let calculator = SimilarityCalculator()
-    let whole = try extract(source, .init())
-    let bodies = try extract(source, .init(compareBodyOnly: true))
+    let whole = try extractElements(from: source, configuration: .init())
+    let bodies = try extractElements(from: source, configuration: .init(compareBodyOnly: true))
     let wholeScore = calculator.calculateSimilarity(between: whole[0].treeNode, and: whole[1].treeNode).similarityScore
     let bodyScore = calculator.calculateSimilarity(between: bodies[0].treeNode, and: bodies[1].treeNode).similarityScore
     #expect(wholeScore < 1.0)
