@@ -94,6 +94,9 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Also list the declarations skipped because of a 'similarity-ignore' comment")
     var showIgnored: Bool = false
     
+    @Flag(inversion: .prefixedNo, help: "Report groups of declarations that are all similar to each other instead of every pair; pairs between groups are listed after them (default: off)")
+    var group: Bool?
+    
     mutating func validate() throws {
         for path in paths {
             do {
@@ -245,7 +248,8 @@ struct ScanCommand: AsyncParsableCommand {
                 compare: compareMode.rawValue,
                 printCodePreviews: showCode,
                 sortOrder: sortOrder,
-                ignored: showIgnored ? extraction.ignored : nil
+                ignored: showIgnored ? extraction.ignored : nil,
+                grouped: settings.group
             )
             
             if format == "json" {
@@ -299,7 +303,8 @@ struct ScanCommand: AsyncParsableCommand {
             sort: sort,
             failOnDuplicates: failOnDuplicates,
             renameCost: renameCost,
-            compare: compare
+            compare: compare,
+            group: group
         )
     }
     
@@ -322,6 +327,7 @@ struct ScanCommand: AsyncParsableCommand {
         failOnDuplicates = settings.failOnDuplicates
         renameCost = settings.renameCost
         compare = settings.compare
+        group = settings.group
     }
     
     /// Accepted `--element-type` values, for help and error messages.

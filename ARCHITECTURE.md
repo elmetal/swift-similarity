@@ -57,6 +57,8 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Formats results as text or JSON (`ScanResult`, `SimilarPair`, `CodeElementLocation`)
 - Optional code previews
 - With `--show-ignored`, lists the declarations skipped by `similarity-ignore` comments
+- With `--group`, shows groups of mutually similar declarations (`SimilarityGrouping`, complete
+  linkage over the reported pairs) and then the pairs between groups
 - `--filter-name` / `--filter-code` keep the pairs involving a matching declaration (`PairFilter`
   in `Sources/swift-similarity/Output/`); every pair is still compared
 
