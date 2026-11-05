@@ -10,6 +10,10 @@ public enum CodeElementType: String, CaseIterable, Sendable {
     case `struct` = "struct"
     case `class` = "class"
     case `enum` = "enum"
+    case initializer = "init"
+    case actor = "actor"
+    case `protocol` = "protocol"
+    case `extension` = "extension"
 }
 
 /// Represents an extracted code element with location information
@@ -158,42 +162,42 @@ private class CodeElementVisitor: SyntaxVisitor {
         super.init(viewMode: .sourceAccurate)
     }
     
-    // Visit function declarations
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        if configuration.elementTypes.contains(.function) {
-            if let element = createCodeElement(from: node, type: .function) {
-                extractedElements.append(element)
-            }
-        }
-        return .visitChildren
+        collect(node, as: .function)
     }
     
-    // Visit struct declarations
+    override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        collect(node, as: .initializer)
+    }
+    
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        if configuration.elementTypes.contains(.struct) {
-            if let element = createCodeElement(from: node, type: .struct) {
-                extractedElements.append(element)
-            }
-        }
-        return .visitChildren
+        collect(node, as: .struct)
     }
     
-    // Visit class declarations
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        if configuration.elementTypes.contains(.class) {
-            if let element = createCodeElement(from: node, type: .class) {
-                extractedElements.append(element)
-            }
-        }
-        return .visitChildren
+        collect(node, as: .class)
     }
     
-    // Visit enum declarations
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        if configuration.elementTypes.contains(.enum) {
-            if let element = createCodeElement(from: node, type: .enum) {
-                extractedElements.append(element)
-            }
+        collect(node, as: .enum)
+    }
+    
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        collect(node, as: .actor)
+    }
+    
+    override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
+        collect(node, as: .protocol)
+    }
+    
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        collect(node, as: .extension)
+    }
+    
+    /// Records `node` if its type was requested; nested declarations are always visited.
+    private func collect(_ node: some DeclSyntaxProtocol, as type: CodeElementType) -> SyntaxVisitorContinueKind {
+        if configuration.elementTypes.contains(type), let element = createCodeElement(from: node, type: type) {
+            extractedElements.append(element)
         }
         return .visitChildren
     }
@@ -230,14 +234,25 @@ private class CodeElementVisitor: SyntaxVisitor {
     
     // Extract name from declaration
     private func extractName(from node: some DeclSyntaxProtocol) -> String? {
-        if let funcDecl = node.as(FunctionDeclSyntax.self) {
+        let decl = Syntax(node)
+        if let funcDecl = decl.as(FunctionDeclSyntax.self) {
             return funcDecl.name.text
-        } else if let structDecl = node.as(StructDeclSyntax.self) {
+        } else if let initDecl = decl.as(InitializerDeclSyntax.self) {
+            // Name initializers like Swift does, e.g. `init(name:age:)` or `init?(_:)`.
+            let labels = initDecl.signature.parameterClause.parameters.map { "\($0.firstName.text):" }.joined()
+            return "init\(initDecl.optionalMark?.text ?? "")(\(labels))"
+        } else if let structDecl = decl.as(StructDeclSyntax.self) {
             return structDecl.name.text
-        } else if let classDecl = node.as(ClassDeclSyntax.self) {
+        } else if let classDecl = decl.as(ClassDeclSyntax.self) {
             return classDecl.name.text
-        } else if let enumDecl = node.as(EnumDeclSyntax.self) {
+        } else if let enumDecl = decl.as(EnumDeclSyntax.self) {
             return enumDecl.name.text
+        } else if let actorDecl = decl.as(ActorDeclSyntax.self) {
+            return actorDecl.name.text
+        } else if let protocolDecl = decl.as(ProtocolDeclSyntax.self) {
+            return protocolDecl.name.text
+        } else if let extensionDecl = decl.as(ExtensionDeclSyntax.self) {
+            return extensionDecl.extendedType.trimmedDescription
         }
         return nil
     }

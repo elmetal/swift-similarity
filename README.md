@@ -15,14 +15,20 @@ swift run swift-similarity-cli scan Sources/ --threshold 0.7
 # Scan for similar structs or classes
 swift run swift-similarity-cli scan Sources/ --element-type struct
 swift run swift-similarity-cli scan Sources/ --element-type class
+
+# Other element types: init, enum, actor, protocol, extension, or all of them
+swift run swift-similarity-cli scan Sources/ --element-type init
+swift run swift-similarity-cli scan Sources/ --element-type all
 ```
 
 ### Performance optimization
+`--optimization` only changes how the work is scheduled (block size and parallelism); every level
+reports the same pairs.
 ```bash
-# Fast scanning for large projects
+# Larger blocks
 swift run swift-similarity-cli scan Sources/ --optimization aggressive
 
-# High precision scanning
+# Smaller blocks
 swift run swift-similarity-cli scan Sources/ --optimization conservative
 ```
 

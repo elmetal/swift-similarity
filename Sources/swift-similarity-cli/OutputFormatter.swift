@@ -96,8 +96,13 @@ struct OutputFormatter {
             output += String(repeating: "=", count: 60) + "\n"
             
             for (index, pair) in similarPairs.enumerated() {
-                let pairElementType = pair.0.elementType.rawValue.capitalized
-                output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(pairElementType): \(pair.0.name)\n"
+                // With --element-type all, the two elements may be of different types.
+                let type1 = pair.0.elementType.rawValue.capitalized
+                let type2 = pair.1.elementType.rawValue.capitalized
+                let names = type1 == type2
+                    ? "\(type1): \(pair.0.name) / \(pair.1.name)"
+                    : "\(type1): \(pair.0.name) / \(type2): \(pair.1.name)"
+                output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(names)\n"
                 output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
                 output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
                 

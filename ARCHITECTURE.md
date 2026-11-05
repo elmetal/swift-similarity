@@ -49,7 +49,7 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 - `@main` entry point (swift-argument-parser); `scan` is the default subcommand
 
 **ScanCommand**
-- Options: element type (`function` / `struct` / `class` / `enum` / `all`), threshold, output format, output file, code previews, optimization level, thread count, progress, statistics, hierarchical mode
+- Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`), threshold, output format, output file, code previews, optimization level, thread count, progress, statistics, hierarchical mode
 - Extracts elements, then runs either `VectorizedPrefilteringEngine` or `HierarchicalProcessor`
 - `--advanced` adds structural / label / depth metrics (`AdvancedSimilarityMetrics`) for each reported pair; pairs are still selected by TSED
 
@@ -63,7 +63,7 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 - Parses source files or strings with `SwiftParser`
 
 **CodeElementExtractor**
-- `SyntaxVisitor` that collects functions, structs, classes and enums
+- `SyntaxVisitor` that collects functions, initializers, structs, classes, enums, actors, protocols and extensions
 - Defines `CodeElement` (name, signature, file path, start/end line, code preview, `TreeNode`) and `CodeElementType`
 
 **ASTToTreeConverter**
