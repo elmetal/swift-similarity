@@ -44,6 +44,16 @@ struct AdvancedMetrics: Codable {
 struct ScanResult: Codable {
     let summary: Summary
     let similarPairs: [SimilarPair]
+    /// Declarations skipped because of a `similarity-ignore` comment; only with `--show-ignored`
+    let ignored: [IgnoredEntry]?
+    
+    struct IgnoredEntry: Codable {
+        let elementType: String
+        let name: String
+        let location: CodeElementLocation
+        /// The comment containing `similarity-ignore`
+        let comment: String
+    }
     
     struct Summary: Codable {
         let totalPairs: Int

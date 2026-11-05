@@ -56,6 +56,9 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 **OutputFormatter / OutputModels**
 - Formats results as text or JSON (`ScanResult`, `SimilarPair`, `CodeElementLocation`)
 - Optional code previews
+- With `--show-ignored`, lists the declarations skipped by `similarity-ignore` comments
+- `--filter-name` / `--filter-code` keep the pairs involving a matching declaration (`PairFilter`
+  in `Sources/swift-similarity/Output/`); every pair is still compared
 
 ### 2. AST Processing (`Sources/swift-similarity/AST/`)
 
@@ -66,6 +69,8 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Parses and walks the files in parallel; elements are returned in file order
 - `SyntaxVisitor` that collects functions, initializers, structs, classes, enums, actors, protocols and extensions
 - Defines `CodeElement` (name, signature, file path, start/end line, code preview, `TreeNode`) and `CodeElementType`
+- `extract(fromPaths:excluding:)` returns an `Extraction`: the elements, the `ConformanceIndex` and
+  the `IgnoredDeclaration`s skipped by `similarity-ignore` comments
 
 **ASTToTreeConverter**
 - Converts any SwiftSyntax node to a `TreeNode`, using the label convention of the tree-sitter ASTs in TSED:

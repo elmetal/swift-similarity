@@ -140,12 +140,24 @@ public final class CodeElementExtractor: Sendable {
     /// - Returns: Array of extracted code elements
     /// - Throws: File reading or parsing errors
     public func extractElements(from filePath: String) throws -> [CodeElement] {
-        try extractElementsAndConformances(from: filePath).elements
+        try extract(fromFile: filePath).elements
     }
     
-    /// Extracts code elements from a Swift file, and the conformances and protocol requirements
-    /// it declares (from every type, extension and protocol, whatever the configuration selects)
-    private func extractElementsAndConformances(from filePath: String) throws -> (elements: [CodeElement], conformances: ConformanceIndex) {
+    /// Everything extracted from a set of files.
+    public struct Extraction: Sendable {
+        /// The selected code elements, in file path order
+        public var elements: [CodeElement] = []
+        /// Conformances and protocol requirements declared in the files, by every type, extension
+        /// and protocol, including declarations the configuration filters out (other element
+        /// types, short or ignored ones). Used by `MemberSimilarityScanner`.
+        public var conformances = ConformanceIndex()
+        /// Declarations of the selected element types skipped because of a `similarity-ignore`
+        /// comment, in file path order
+        public var ignored: [IgnoredDeclaration] = []
+    }
+    
+    /// Extracts code elements, conformances and ignored declarations from one Swift file
+    private func extract(fromFile filePath: String) throws -> Extraction {
         let sourceContent = try String(contentsOf: URL(fileURLWithPath: filePath))
         let sourceFile = SwiftASTParser.parseSource(sourceContent)
         let sourceLines = sourceContent.components(separatedBy: .newlines)
@@ -159,7 +171,7 @@ public final class CodeElementExtractor: Sendable {
         )
         
         visitor.walk(sourceFile)
-        return (visitor.extractedElements, visitor.conformances)
+        return Extraction(elements: visitor.extractedElements, conformances: visitor.conformances, ignored: visitor.ignoredDeclarations)
     }
     
     /// Extracts code elements from a directory
@@ -167,7 +179,7 @@ public final class CodeElementExtractor: Sendable {
     /// - Returns: Array of all extracted code elements
     /// - Throws: File system or parsing errors
     public func extractElements(fromDirectory directoryPath: String) throws -> [CodeElement] {
-        try extractElements(fromFiles: FileReader.findSwiftFiles(in: directoryPath))
+        try extract(fromFiles: FileReader.findSwiftFiles(in: directoryPath)).elements
     }
 
     /// Extracts code elements from directories and Swift files
@@ -177,36 +189,51 @@ public final class CodeElementExtractor: Sendable {
     /// - Returns: Array of all extracted code elements, in file path order
     /// - Throws: File system or parsing errors
     public func extractElements(fromPaths paths: [String], excluding exclude: [ExcludePattern] = []) throws -> [CodeElement] {
-        try extractElements(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
+        try extract(fromPaths: paths, excluding: exclude).elements
     }
 
     /// Extracts code elements from directories and Swift files, together with the protocol
-    /// conformances and requirements declared in those files, for `MemberSimilarityScanner`.
-    ///
-    /// The conformance index covers every type, extension and protocol in the files, including
-    /// declarations that the configuration filters out (other element types, short or ignored ones).
-    public func extractElementsAndConformances(fromPaths paths: [String], excluding exclude: [ExcludePattern] = []) throws -> (elements: [CodeElement], conformances: ConformanceIndex) {
-        try extractElementsAndConformances(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
+    /// conformances declared in them and the declarations skipped by `similarity-ignore` comments.
+    public func extract(fromPaths paths: [String], excluding exclude: [ExcludePattern] = []) throws -> Extraction {
+        try extract(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
     }
 
-    private func extractElements(fromFiles swiftFiles: [String]) throws -> [CodeElement] {
-        try extractElementsAndConformances(fromFiles: swiftFiles).elements
-    }
-
-    /// Extracts the files in parallel (each file is parsed and walked independently) and returns
-    /// their elements in file order. When files fail, the first failing file's error is thrown.
-    private func extractElementsAndConformances(fromFiles swiftFiles: [String]) throws -> (elements: [CodeElement], conformances: ConformanceIndex) {
+    /// Extracts the files in parallel (each file is parsed and walked independently) and combines
+    /// them in file order. When files fail, the first failing file's error is thrown.
+    private func extract(fromFiles swiftFiles: [String]) throws -> Extraction {
         let results = swiftFiles.concurrentMap { filePath in
-            Result { try self.extractElementsAndConformances(from: filePath) }
+            Result { try self.extract(fromFile: filePath) }
         }
-        var elements: [CodeElement] = []
-        var conformances = ConformanceIndex()
+        var extraction = Extraction()
         for result in results {
             let file = try result.get()
-            elements.append(contentsOf: file.elements)
-            conformances.merge(file.conformances)
+            extraction.elements.append(contentsOf: file.elements)
+            extraction.conformances.merge(file.conformances)
+            extraction.ignored.append(contentsOf: file.ignored)
         }
-        return (elements, conformances)
+        return extraction
+    }
+}
+
+// MARK: - Ignored Declaration
+
+/// A declaration skipped because of a `similarity-ignore` comment, reported by `scan --show-ignored`.
+public struct IgnoredDeclaration: Sendable, Equatable {
+    public let elementType: CodeElementType
+    public let name: String
+    public let filePath: String
+    public let startLine: Int
+    public let endLine: Int
+    /// The comment containing `similarity-ignore`, which may give a reason
+    public let comment: String
+
+    public init(elementType: CodeElementType, name: String, filePath: String, startLine: Int, endLine: Int, comment: String) {
+        self.elementType = elementType
+        self.name = name
+        self.filePath = filePath
+        self.startLine = startLine
+        self.endLine = endLine
+        self.comment = comment
     }
 }
 
@@ -223,6 +250,8 @@ private class CodeElementVisitor: SyntaxVisitor {
     var extractedElements: [CodeElement] = []
     /// Conformances and protocol requirements of every declaration group in the file
     var conformances = ConformanceIndex()
+    /// Declarations of the selected types skipped because of a `similarity-ignore` comment
+    var ignoredDeclarations: [IgnoredDeclaration] = []
     
     init(filePath: String, sourceLines: [String], sourceContent: String, sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
         self.filePath = filePath
@@ -285,7 +314,12 @@ private class CodeElementVisitor: SyntaxVisitor {
         // Get name
         guard let name = extractName(from: node) else { return nil }
 
-        if configuration.respectIgnoreDirectives && hasIgnoreDirective(node) {
+        if configuration.respectIgnoreDirectives, let comment = ignoreDirectiveComment(node) {
+            let (startLine, endLine) = calculateLineNumbers(for: node)
+            ignoredDeclarations.append(IgnoredDeclaration(
+                elementType: type, name: name, filePath: filePath,
+                startLine: startLine, endLine: endLine, comment: comment
+            ))
             return nil
         }
 
@@ -331,19 +365,22 @@ private class CodeElementVisitor: SyntaxVisitor {
         )
     }
     
-    /// Whether a comment directly before the declaration (in its leading trivia, which also covers
-    /// comments above its attributes) contains `similarity-ignore`. Only this declaration is
-    /// skipped; declarations nested in it are still extracted.
-    private func hasIgnoreDirective(_ node: some DeclSyntaxProtocol) -> Bool {
-        node.leadingTrivia.contains { piece in
+    /// The comment directly before the declaration (in its leading trivia, which also covers
+    /// comments above its attributes) that contains `similarity-ignore`, trimmed, or nil if there
+    /// is none. Only this declaration is skipped; declarations nested in it are still extracted.
+    private func ignoreDirectiveComment(_ node: some DeclSyntaxProtocol) -> String? {
+        for piece in node.leadingTrivia {
             switch piece {
             case .lineComment(let text), .blockComment(let text),
                  .docLineComment(let text), .docBlockComment(let text):
-                return text.contains(CodeElementExtractor.ignoreDirective)
+                if text.contains(CodeElementExtractor.ignoreDirective) {
+                    return text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
             default:
-                return false
+                continue
             }
         }
+        return nil
     }
 
     /// Whether `node` has at least `minimum` tokens; stops counting once the minimum is reached.
