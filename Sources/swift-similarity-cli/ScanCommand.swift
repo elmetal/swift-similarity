@@ -7,17 +7,24 @@ import swift_similarity
 struct ScanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "scan",
-        abstract: "Scan a directory for similar Swift declarations (functions, initializers, types, protocols, extensions)"
+        abstract: "Scan directories and files for similar Swift declarations (functions, initializers, types, protocols, extensions)",
+        discussion: """
+            Settings are also read from the nearest \(SimilarityConfig.fileName) in the current directory \
+            or one of its parents. Command-line options override it; see the README for the supported keys.
+            """
     )
     
-    @Argument(help: "Directory to scan for Swift files")
-    var directory: String
+    @Argument(help: "Directories and .swift files to scan")
+    var paths: [String]
     
-    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames))")
-    var elementType: String = "function"
+    @Option(name: .long, help: ArgumentHelp("Skip files and directories matching a glob pattern (repeatable), such as 'Tests', '**/Generated/**' or '*.generated.swift'", valueName: "pattern"))
+    var exclude: [String] = []
     
-    @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0)")
-    var threshold: Double = 0.8
+    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames); default: \(ScanSettings.defaultElementType))")
+    var elementType: String?
+    
+    @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0; default: \(ScanSettings.defaultThreshold))")
+    var threshold: Double?
     
     @Flag(name: .shortAndLong, help: "Also report structural, label and depth similarity for each pair (does not change which pairs are found)")
     var advanced: Bool = false
@@ -33,17 +40,17 @@ struct ScanCommand: AsyncParsableCommand {
 
     // MARK: - Filtering Options
 
-    @Option(name: [.customShort("m"), .long], help: "Skip declarations shorter than this many lines (0 keeps all)")
-    var minLines: Int = 5
+    @Option(name: [.customShort("m"), .long], help: "Skip declarations shorter than this many lines (0 keeps all; default: \(ScanSettings.defaultMinLines))")
+    var minLines: Int?
 
-    @Option(name: .long, help: "Skip declarations with fewer tokens than this (0 keeps all; with --body-only, only the body's tokens count)")
-    var minTokens: Int = 0
+    @Option(name: .long, help: "Skip declarations with fewer tokens than this (0 keeps all; with --body-only, only the body's tokens count; default: \(ScanSettings.defaultMinTokens))")
+    var minTokens: Int?
 
-    @Flag(name: .long, help: "Compare only bodies: code blocks of functions and initializers, member blocks of types (declarations without a body are skipped)")
-    var bodyOnly: Bool = false
+    @Flag(inversion: .prefixedNo, help: "Compare only bodies: code blocks of functions and initializers, member blocks of types (declarations without a body are skipped; default: off)")
+    var bodyOnly: Bool?
 
-    @Flag(name: .long, help: "Also compare declarations preceded by a 'similarity-ignore' comment")
-    var noIgnoreDirectives: Bool = false
+    @Flag(inversion: .prefixedNo, help: "Skip declarations preceded by a 'similarity-ignore' comment; --no-ignore-directives compares them too (default: on)")
+    var ignoreDirectives: Bool?
     
     // MARK: - Performance Optimization Options
     
@@ -64,22 +71,27 @@ struct ScanCommand: AsyncParsableCommand {
     
     // MARK: - Reporting Options
     
-    @Option(name: .long, help: "Result order: 'similarity' (score, highest first) or 'priority' (similarity × lines of the smaller declaration, so large duplicates come first)")
-    var sort: String = "similarity"
+    @Option(name: .long, help: "Result order: 'similarity' (score, highest first) or 'priority' (similarity × lines of the smaller declaration, so large duplicates come first; default: \(ScanSettings.defaultSort))")
+    var sort: String?
     
-    @Flag(name: .long, help: "Exit with code 1 if any similar pair is found (for CI); results are still written")
-    var failOnDuplicates: Bool = false
+    @Flag(inversion: .prefixedNo, help: "Exit with code 1 if any similar pair is found (for CI); results are still written (default: off)")
+    var failOnDuplicates: Bool?
     
-    func validate() throws {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw ValidationError("'\(directory)' is not a directory.")
+    mutating func validate() throws {
+        for path in paths {
+            do {
+                try FileReader.validateInputPath(path)
+            } catch {
+                throw ValidationError(error.localizedDescription)
+            }
         }
-        guard (0.0...1.0).contains(threshold) else {
-            throw ValidationError("Threshold must be between 0.0 and 1.0, got \(threshold).")
+        applySettings(config: Self.loadConfig())
+        let settings = resolvedSettings
+        guard (0.0...1.0).contains(settings.threshold) else {
+            throw ValidationError("Threshold must be between 0.0 and 1.0, got \(settings.threshold).")
         }
-        guard Self.elementTypes(for: elementType) != nil else {
-            throw ValidationError("Invalid element type '\(elementType)'. Valid types: \(Self.elementTypeNames)")
+        guard Self.elementTypes(for: settings.elementType) != nil else {
+            throw ValidationError("Invalid element type '\(settings.elementType)'. Valid types: \(Self.elementTypeNames)")
         }
         guard ["text", "json"].contains(format.lowercased()) else {
             throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
@@ -87,31 +99,39 @@ struct ScanCommand: AsyncParsableCommand {
         guard Self.optimizationLevel(for: optimization) != nil else {
             throw ValidationError("Invalid optimization level '\(optimization)'. Valid levels: conservative, balanced, aggressive, auto")
         }
-        guard minLines >= 0 else {
-            throw ValidationError("Minimum lines must be 0 (no limit) or more, got \(minLines).")
+        guard settings.minLines >= 0 else {
+            throw ValidationError("Minimum lines must be 0 (no limit) or more, got \(settings.minLines).")
         }
-        guard minTokens >= 0 else {
-            throw ValidationError("Minimum tokens must be 0 (no limit) or more, got \(minTokens).")
+        guard settings.minTokens >= 0 else {
+            throw ValidationError("Minimum tokens must be 0 (no limit) or more, got \(settings.minTokens).")
         }
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
         }
-        guard SimilarityRanking.SortOrder(rawValue: sort.lowercased()) != nil else {
-            throw ValidationError("Invalid sort order '\(sort)'. Valid orders: \(SimilarityRanking.SortOrder.allCases.map(\.rawValue).joined(separator: ", "))")
+        guard SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased()) != nil else {
+            throw ValidationError("Invalid sort order '\(settings.sort)'. Valid orders: \(SimilarityRanking.SortOrder.allCases.map(\.rawValue).joined(separator: ", "))")
         }
     }
     
     mutating func run() async throws {
+        // validate() filled in and checked these values.
+        let settings = resolvedSettings
+        let threshold = settings.threshold
+        let minLines = settings.minLines
+        let minTokens = settings.minTokens
+        let bodyOnly = settings.bodyOnly
         // Option values are case-insensitive; normalize them for display and output.
-        elementType = elementType.lowercased()
+        let elementType = settings.elementType.lowercased()
         format = format.lowercased()
         
-        // Both values were checked by validate().
         let targetElementTypes = Self.elementTypes(for: elementType)!
         let optimizationLevel = Self.optimizationLevel(for: optimization)!
-        let sortOrder = SimilarityRanking.SortOrder(rawValue: sort.lowercased())!
+        let sortOrder = SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased())!
         
-        printDiagnostic("Scanning directory: \(directory)")
+        printDiagnostic("Scanning: \(paths.joined(separator: ", "))")
+        if !exclude.isEmpty {
+            printDiagnostic("Exclude: \(exclude.joined(separator: ", "))")
+        }
         printDiagnostic("Element type: \(elementType)")
         printDiagnostic("Threshold: \(threshold)")
         printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
@@ -122,17 +142,17 @@ struct ScanCommand: AsyncParsableCommand {
         
         var pairCount = 0
         do {
-            // Extract code elements from directory
+            // Extract code elements from the given paths
             let extractorConfig = CodeElementExtractor.Configuration(
                 elementTypes: targetElementTypes,
                 maxPreviewLines: 5,
                 minLines: minLines,
                 minTokens: minTokens,
-                respectIgnoreDirectives: !noIgnoreDirectives,
+                respectIgnoreDirectives: settings.ignoreDirectives,
                 compareBodyOnly: bodyOnly
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
-            let elements = try extractor.extractElements(fromDirectory: directory)
+            let elements = try extractor.extractElements(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
             
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
@@ -150,6 +170,7 @@ struct ScanCommand: AsyncParsableCommand {
             } else {
                 try await calculateWithOptimization(
                     elements: elements,
+                    threshold: threshold,
                     optimizationLevel: optimizationLevel
                 )
             }
@@ -189,13 +210,64 @@ struct ScanCommand: AsyncParsableCommand {
         }
         
         // Checked after the results are written, outside the do/catch so it is not reported as an error.
-        if failOnDuplicates && pairCount > 0 {
+        if settings.failOnDuplicates && pairCount > 0 {
             printDiagnostic("Exiting with code 1: \(pairCount) similar pairs found (--fail-on-duplicates)")
             throw ExitCode.failure
         }
     }
     
     // MARK: - Helper Methods
+    
+    /// Reads the nearest config file, warning about problems with it on stderr.
+    private static func loadConfig() -> SimilarityConfig? {
+        let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        guard let url = SimilarityConfig.find(from: currentDirectory) else { return nil }
+        do {
+            let config = try SimilarityConfig.load(from: url)
+            printDiagnostic("Using config: \(url.path)")
+            for key in config.unknownKeys {
+                printDiagnostic("Warning: \(url.path): unsupported key '\(key)' is ignored")
+            }
+            return config
+        } catch {
+            printDiagnostic("Warning: ignoring \(url.path): \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    /// The options given on the command line; nil for those that were not.
+    private var commandLineSettings: SimilarityConfig {
+        SimilarityConfig(
+            threshold: threshold,
+            elementType: elementType,
+            exclude: exclude,
+            minLines: minLines,
+            minTokens: minTokens,
+            bodyOnly: bodyOnly,
+            ignoreDirectives: ignoreDirectives,
+            sort: sort,
+            failOnDuplicates: failOnDuplicates
+        )
+    }
+    
+    /// Every option, after applySettings filled in those not given on the command line.
+    private var resolvedSettings: ScanSettings {
+        ScanSettings.resolve(commandLine: commandLineSettings, file: nil)
+    }
+    
+    /// Fills in options not given on the command line from the config file and defaults.
+    private mutating func applySettings(config: SimilarityConfig?) {
+        let settings = ScanSettings.resolve(commandLine: commandLineSettings, file: config)
+        threshold = settings.threshold
+        elementType = settings.elementType
+        exclude = settings.exclude
+        minLines = settings.minLines
+        minTokens = settings.minTokens
+        bodyOnly = settings.bodyOnly
+        ignoreDirectives = settings.ignoreDirectives
+        sort = settings.sort
+        failOnDuplicates = settings.failOnDuplicates
+    }
     
     /// Accepted `--element-type` values, for help and error messages.
     static let elementTypeNames = (CodeElementType.allCases.map(\.rawValue) + ["all"]).joined(separator: ", ")
@@ -217,6 +289,7 @@ struct ScanCommand: AsyncParsableCommand {
     /// Calculates similarity with performance optimization
     private func calculateWithOptimization(
         elements: [CodeElement],
+        threshold: Double,
         optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
