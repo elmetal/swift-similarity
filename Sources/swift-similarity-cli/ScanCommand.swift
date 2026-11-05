@@ -30,6 +30,20 @@ struct ScanCommand: AsyncParsableCommand {
     
     @Flag(name: [.customShort("p"), .customLong("print")], help: "Print code previews for similar elements")
     var showCode: Bool = false
+
+    // MARK: - Filtering Options
+
+    @Option(name: [.customShort("m"), .long], help: "Skip declarations shorter than this many lines (0 keeps all)")
+    var minLines: Int = 5
+
+    @Option(name: .long, help: "Skip declarations with fewer tokens than this (0 keeps all; with --body-only, only the body's tokens count)")
+    var minTokens: Int = 0
+
+    @Flag(name: .long, help: "Compare only bodies: code blocks of functions and initializers, member blocks of types (declarations without a body are skipped)")
+    var bodyOnly: Bool = false
+
+    @Flag(name: .long, help: "Also compare declarations preceded by a 'similarity-ignore' comment")
+    var noIgnoreDirectives: Bool = false
     
     // MARK: - Performance Optimization Options
     
@@ -65,6 +79,12 @@ struct ScanCommand: AsyncParsableCommand {
         guard Self.optimizationLevel(for: optimization) != nil else {
             throw ValidationError("Invalid optimization level '\(optimization)'. Valid levels: conservative, balanced, aggressive, auto")
         }
+        guard minLines >= 0 else {
+            throw ValidationError("Minimum lines must be 0 (no limit) or more, got \(minLines).")
+        }
+        guard minTokens >= 0 else {
+            throw ValidationError("Minimum tokens must be 0 (no limit) or more, got \(minTokens).")
+        }
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
         }
@@ -82,6 +102,8 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Scanning directory: \(directory)")
         printDiagnostic("Element type: \(elementType)")
         printDiagnostic("Threshold: \(threshold)")
+        printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
+        printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
         printDiagnostic("Advanced metrics: \(advanced)")
         printDiagnostic("Optimization: \(optimization)")
         printDiagnostic("")
@@ -90,7 +112,11 @@ struct ScanCommand: AsyncParsableCommand {
             // Extract code elements from directory
             let extractorConfig = CodeElementExtractor.Configuration(
                 elementTypes: targetElementTypes,
-                maxPreviewLines: 5
+                maxPreviewLines: 5,
+                minLines: minLines,
+                minTokens: minTokens,
+                respectIgnoreDirectives: !noIgnoreDirectives,
+                compareBodyOnly: bodyOnly
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
             let elements = try extractor.extractElements(fromDirectory: directory)
