@@ -11,7 +11,12 @@ struct CodeElementLocation: Codable {
 
 /// Similar pair information for JSON output
 struct SimilarPair: Codable {
+    /// Similarity in percent
     let similarity: Double
+    /// Similarity (0.0-1.0) × `lines`; the key for `--sort priority`
+    let priority: Double
+    /// Line span of the smaller of the two declarations
+    let lines: Int
     let elementType: String
     let elementName1: String
     let elementName2: String
@@ -45,5 +50,7 @@ struct ScanResult: Codable {
         let elementType: String
         let threshold: Double
         let advancedMetrics: Bool
+        /// Order of `similarPairs`: "similarity" or "priority"
+        let sortOrder: String
     }
 }

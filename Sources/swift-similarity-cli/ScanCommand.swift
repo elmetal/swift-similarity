@@ -62,6 +62,14 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Use hierarchical processing pipeline for massive datasets (Phase 11)")
     var hierarchical: Bool = false
     
+    // MARK: - Reporting Options
+    
+    @Option(name: .long, help: "Result order: 'similarity' (score, highest first) or 'priority' (similarity × lines of the smaller declaration, so large duplicates come first)")
+    var sort: String = "similarity"
+    
+    @Flag(name: .long, help: "Exit with code 1 if any similar pair is found (for CI); results are still written")
+    var failOnDuplicates: Bool = false
+    
     func validate() throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -88,6 +96,9 @@ struct ScanCommand: AsyncParsableCommand {
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
         }
+        guard SimilarityRanking.SortOrder(rawValue: sort.lowercased()) != nil else {
+            throw ValidationError("Invalid sort order '\(sort)'. Valid orders: \(SimilarityRanking.SortOrder.allCases.map(\.rawValue).joined(separator: ", "))")
+        }
     }
     
     mutating func run() async throws {
@@ -98,6 +109,7 @@ struct ScanCommand: AsyncParsableCommand {
         // Both values were checked by validate().
         let targetElementTypes = Self.elementTypes(for: elementType)!
         let optimizationLevel = Self.optimizationLevel(for: optimization)!
+        let sortOrder = SimilarityRanking.SortOrder(rawValue: sort.lowercased())!
         
         printDiagnostic("Scanning directory: \(directory)")
         printDiagnostic("Element type: \(elementType)")
@@ -108,6 +120,7 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Optimization: \(optimization)")
         printDiagnostic("")
         
+        var pairCount = 0
         do {
             // Extract code elements from directory
             let extractorConfig = CodeElementExtractor.Configuration(
@@ -125,7 +138,7 @@ struct ScanCommand: AsyncParsableCommand {
             printDiagnostic("Found \(elements.count) \(elementDescription)")
             
             // Calculate similarity using selected processing method
-            let (similarPairs, performanceStats): ([(CodeElement, CodeElement, Double)], PerformanceStatistics?) = if elements.count < 2 {
+            let (unsortedPairs, performanceStats): ([(CodeElement, CodeElement, Double)], PerformanceStatistics?) = if elements.count < 2 {
                 // Still write the (empty) result so JSON consumers always get a document.
                 ([], nil)
             } else if hierarchical {
@@ -140,6 +153,7 @@ struct ScanCommand: AsyncParsableCommand {
                     optimizationLevel: optimizationLevel
                 )
             }
+            let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
             
             printDiagnostic("Found \(similarPairs.count) similar pairs")
             
@@ -158,7 +172,8 @@ struct ScanCommand: AsyncParsableCommand {
                 elementType: elementType,
                 threshold: threshold,
                 advanced: advanced,
-                printCodePreviews: showCode
+                printCodePreviews: showCode,
+                sortOrder: sortOrder
             )
             
             if format == "json" {
@@ -167,8 +182,15 @@ struct ScanCommand: AsyncParsableCommand {
                 try formatter.outputText(similarPairs: similarPairs, to: output)
             }
             
+            pairCount = similarPairs.count
         } catch {
             printDiagnostic("Error: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+        
+        // Checked after the results are written, outside the do/catch so it is not reported as an error.
+        if failOnDuplicates && pairCount > 0 {
+            printDiagnostic("Exiting with code 1: \(pairCount) similar pairs found (--fail-on-duplicates)")
             throw ExitCode.failure
         }
     }
