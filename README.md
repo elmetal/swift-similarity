@@ -37,6 +37,27 @@ swift run swift-similarity-cli scan Sources/ --print
 swift run swift-similarity-cli scan Sources/ --advanced
 ```
 
+### Ranking and CI
+```bash
+# Show the most impactful duplicates first
+swift run swift-similarity-cli scan Sources/ --sort priority
+
+# Exit with code 1 when any similar pair is found (results are still written)
+swift run swift-similarity-cli scan Sources/ --fail-on-duplicates
+```
+
+`--sort similarity` (the default) orders pairs by similarity, highest first. `--sort priority`
+orders them by **priority = similarity × lines**, where lines is the line span of the *smaller*
+of the two declarations: at most that many lines can be duplicated, so a short helper that
+resembles part of a long function is not ranked as if the whole long function were duplicated.
+Ties are broken by similarity, then by the order the pairs were found in, so the output is
+deterministic. Each pair shows its priority (for example `Priority: 8.5 (lines: 10)`), and the
+JSON output has `priority` and `lines` fields plus `summary.sortOrder`.
+
+With `--fail-on-duplicates` the exit code is 1 if at least one pair is found and 0 otherwise.
+The results go to stdout (or `--output`) as usual and diagnostics to stderr; invalid arguments
+exit with code 64.
+
 ## Inspired
 
 This project was inspired by [mizchi/similarity](https://github.com/mizchi/similarity).
