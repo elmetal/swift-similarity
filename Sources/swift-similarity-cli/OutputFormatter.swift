@@ -14,6 +14,8 @@ struct OutputFormatter {
     let compare: String
     let printCodePreviews: Bool
     let sortOrder: SimilarityRanking.SortOrder
+    /// Declarations skipped by `similarity-ignore` comments, listed with `--show-ignored`; nil otherwise
+    let ignored: [IgnoredDeclaration]?
     
     /// Computes the additional metrics for a pair when `--advanced` is set.
     /// They are reported alongside the TSED score and do not affect which pairs are found.
@@ -73,6 +75,18 @@ struct OutputFormatter {
                     codePreview1: printCodePreviews ? pair.0.codePreview : "",
                     codePreview2: printCodePreviews ? pair.1.codePreview : "",
                     advancedMetrics: advancedMetrics(for: pair)
+                )
+            },
+            ignored: ignored?.map { declaration in
+                ScanResult.IgnoredEntry(
+                    elementType: declaration.elementType.rawValue,
+                    name: declaration.name,
+                    location: CodeElementLocation(
+                        file: declaration.filePath,
+                        startLine: declaration.startLine,
+                        endLine: declaration.endLine
+                    ),
+                    comment: declaration.comment
                 )
             }
         )
@@ -141,6 +155,16 @@ struct OutputFormatter {
                 }
                 
                 output += "\n"
+            }
+        }
+        
+        if let ignored {
+            output += "\nIgnored Declarations (similarity-ignore): \(ignored.count)\n"
+            output += String(repeating: "=", count: 60) + "\n"
+            for declaration in ignored {
+                output += "- \(declaration.elementType.rawValue.capitalized): \(declaration.name)\n"
+                output += "   File: \(declaration.filePath):\(declaration.startLine)-\(declaration.endLine)\n"
+                output += "   Comment: \(declaration.comment)\n"
             }
         }
         

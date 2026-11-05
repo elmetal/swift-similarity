@@ -9,8 +9,8 @@ private func extract(_ source: String) throws -> (elements: [CodeElement], confo
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     try source.write(to: directory.appendingPathComponent("Source.swift"), atomically: true, encoding: .utf8)
-    return try CodeElementExtractor(configuration: .init(minLines: 0))
-        .extractElementsAndConformances(fromPaths: [directory.path])
+    let extraction = try CodeElementExtractor(configuration: .init(minLines: 0)).extract(fromPaths: [directory.path])
+    return (extraction.elements, extraction.conformances)
 }
 
 private func names(_ members: [TypeMember]?) -> [String] {

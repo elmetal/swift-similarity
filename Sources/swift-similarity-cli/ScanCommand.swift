@@ -85,6 +85,15 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Exit with code 1 if any similar pair is found (for CI); results are still written (default: off)")
     var failOnDuplicates: Bool?
     
+    @Option(name: .long, help: ArgumentHelp("Only report pairs in which a declaration's name contains this text (ignoring case)", valueName: "text"))
+    var filterName: String?
+    
+    @Option(name: .long, help: ArgumentHelp("Only report pairs in which a declaration's source contains this text (case-sensitive); combined with --filter-name, one declaration must match both", valueName: "text"))
+    var filterCode: String?
+    
+    @Flag(name: .long, help: "Also list the declarations skipped because of a 'similarity-ignore' comment")
+    var showIgnored: Bool = false
+    
     mutating func validate() throws {
         for path in paths {
             do {
@@ -157,6 +166,13 @@ struct ScanCommand: AsyncParsableCommand {
         if !exclude.isEmpty {
             printDiagnostic("Exclude: \(exclude.joined(separator: ", "))")
         }
+        let pairFilter = PairFilter(nameContains: filterName, codeContains: filterCode)
+        if let name = pairFilter.nameContains {
+            printDiagnostic("Filter: name contains '\(name)'")
+        }
+        if let code = pairFilter.codeContains {
+            printDiagnostic("Filter: source contains '\(code)'")
+        }
         printDiagnostic("Element type: \(elementType)")
         printDiagnostic("Threshold: \(threshold)")
         printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
@@ -182,7 +198,8 @@ struct ScanCommand: AsyncParsableCommand {
                 compareBodyOnly: bodyOnly
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
-            let (elements, conformances) = try extractor.extractElementsAndConformances(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
+            let extraction = try extractor.extract(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
+            let elements = extraction.elements
             
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
@@ -197,12 +214,19 @@ struct ScanCommand: AsyncParsableCommand {
                 )
                 result = try await scanner.scan(elements, threshold: threshold)
             case .members:
-                result = MemberSimilarityScanner().scan(elements, threshold: threshold, conformances: conformances)
+                result = MemberSimilarityScanner().scan(elements, threshold: threshold, conformances: extraction.conformances)
             }
-            let unsortedPairs = result.pairs.map { ($0.first, $0.second, $0.similarity) }
+            let unsortedPairs = pairFilter.apply(to: result.pairs).map { ($0.first, $0.second, $0.similarity) }
             let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
             
-            printDiagnostic("Found \(similarPairs.count) similar pairs")
+            if pairFilter.isEmpty {
+                printDiagnostic("Found \(similarPairs.count) similar pairs")
+            } else {
+                printDiagnostic("Found \(result.pairs.count) similar pairs, \(similarPairs.count) matching the filter")
+            }
+            if showIgnored && !settings.ignoreDirectives {
+                printDiagnostic("Note: --show-ignored lists nothing because similarity-ignore comments are not honored (--no-ignore-directives)")
+            }
             
             if elements.count < 2 {
                 printDiagnostic("Need at least 2 \(elementDescription) to compare")
@@ -220,7 +244,8 @@ struct ScanCommand: AsyncParsableCommand {
                 costs: settings.operationCosts,
                 compare: compareMode.rawValue,
                 printCodePreviews: showCode,
-                sortOrder: sortOrder
+                sortOrder: sortOrder,
+                ignored: showIgnored ? extraction.ignored : nil
             )
             
             if format == "json" {

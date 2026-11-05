@@ -43,6 +43,28 @@ declarations nested in it). `--no-ignore-directives` compares them anyway.
 func generatedHelper() { ... }
 ```
 
+### Focusing on one declaration
+```bash
+# Pairs in which a declaration's name contains "parse" (ignoring case)
+swift run swift-similarity-cli scan Sources/ --element-type all --filter-name parse
+
+# Pairs in which a declaration's source contains "URLSession" (case-sensitive)
+swift run swift-similarity-cli scan Sources/ --filter-code URLSession
+```
+
+A pair is reported when either of its declarations matches; with both options, one declaration
+must match both. The filters only select which pairs are reported: every pair is still compared,
+scores are unchanged, and `--fail-on-duplicates` counts the reported pairs.
+
+### Listing ignored declarations
+```bash
+swift run swift-similarity-cli scan Sources/ --show-ignored
+```
+
+`--show-ignored` adds the declarations skipped because of a `similarity-ignore` comment (of the
+selected element types) to the output, with their location and the comment, so you can review
+them. In JSON they are in the `ignored` array.
+
 ### Choosing files
 `scan` takes one or more directories and `.swift` files. Directories are searched recursively;
 hidden files and directories (such as `.build` and `.git`) are skipped. Each file is scanned once,
@@ -208,6 +230,29 @@ JSON output has `priority` and `lines` fields plus `summary.sortOrder`.
 With `--fail-on-duplicates` the exit code is 1 if at least one pair is found and 0 otherwise.
 The results go to stdout (or `--output`) as usual and diagnostics to stderr; invalid arguments
 exit with code 64.
+
+## Using with AI assistants
+
+The text output gives each pair's similarity, priority and `file:line` locations, which an AI
+assistant can read directly. Ask it to run the tool and plan the refactoring, for example:
+
+```
+Run `swift-similarity-cli scan Sources --sort priority` to find similar Swift code. Read the code
+of the reported pairs, separate real duplicates from code that only has the same shape, and write a
+refactoring plan ordered by impact. See `swift-similarity-cli scan --help` for options.
+```
+
+```
+`swift-similarity-cli scan Sources --sort priority` で構造的に似た Swift コードを検出できます。
+実行して、報告されたペアのコードを読み、本当の重複と形が似ているだけのコードを区別したうえで、
+効果の大きい順にリファクタリング計画を立ててください。オプションは `swift-similarity-cli scan --help` で確認できます。
+```
+
+For [Claude Code](https://claude.com/claude-code), this repository includes a skill,
+[`.claude/skills/check-similarity/SKILL.md`](.claude/skills/check-similarity/SKILL.md), with the
+same workflow in more detail: which scans to run, how to judge the pairs and how to write the plan.
+Copy it to `.claude/skills/check-similarity/` in your project (or `~/.claude/skills/` for every
+project) and ask Claude to check for duplicated code.
 
 ## Inspired
 
