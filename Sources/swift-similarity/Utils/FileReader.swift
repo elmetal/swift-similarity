@@ -7,11 +7,16 @@ public class FileReader {
     
     /// Finds all Swift files in a directory.
     /// - Parameter directory: The directory path to search
-    /// - Returns: Array of Swift file paths
-    /// - Throws: File system errors
+    /// - Returns: Swift file paths, sorted so that results are reproducible
+    /// - Throws: An error if `directory` is not an existing directory, or file system errors
     public static func findSwiftFiles(in directory: String) throws -> [String] {
         let url = URL(fileURLWithPath: directory)
         let fileManager = FileManager.default
+        
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw NSError(domain: "FileReaderError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Not a directory: \(directory)"])
+        }
         
         let resourceKeys: [URLResourceKey] = [.isRegularFileKey]
         guard let enumerator = fileManager.enumerator(
@@ -33,6 +38,6 @@ public class FileReader {
             }
         }
         
-        return swiftFiles
+        return swiftFiles.sorted()
     }
 } 

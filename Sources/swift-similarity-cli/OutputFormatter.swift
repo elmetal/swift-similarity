@@ -24,17 +24,12 @@ struct OutputFormatter {
     }
     
     /// Outputs results in text format
-    func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) {
+    func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) throws {
         let output = generateTextOutput(similarPairs: similarPairs)
         
         if let outputFile = outputFile {
-            do {
-                try output.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
-                print("Results written to: \(outputFile)")
-            } catch {
-                print("Failed to write to file: \(error.localizedDescription)")
-                print(output)
-            }
+            try output.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
+            printDiagnostic("Results written to: \(outputFile)")
         } else {
             print(output)
         }
@@ -79,7 +74,7 @@ struct OutputFormatter {
         
         if let outputFile = outputFile {
             try jsonString.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
-            print("JSON results written to: \(outputFile)")
+            printDiagnostic("JSON results written to: \(outputFile)")
         } else {
             print(jsonString)
         }
