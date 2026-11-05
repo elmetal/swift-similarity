@@ -44,6 +44,9 @@ struct AdvancedMetrics: Codable {
 struct ScanResult: Codable {
     let summary: Summary
     let similarPairs: [SimilarPair]
+    /// Groups of mutually similar declarations; only with `--group`. `similarPairs` still lists
+    /// every pair.
+    let groups: [SimilarGroup]?
     /// Declarations skipped because of a `similarity-ignore` comment; only with `--show-ignored`
     let ignored: [IgnoredEntry]?
     
@@ -67,5 +70,24 @@ struct ScanResult: Codable {
         let advancedMetrics: Bool
         /// Order of `similarPairs`: "similarity" or "priority"
         let sortOrder: String
+    }
+}
+/// Declarations that are all similar to each other, for JSON output with `--group`
+struct SimilarGroup: Codable {
+    /// Similarity of the least similar pair of members (percent)
+    let minimumSimilarity: Double
+    /// Similarity of the most similar pair of members (percent)
+    let maximumSimilarity: Double
+    /// (members − 1) × lines × minimum similarity (0.0-1.0)
+    let priority: Double
+    /// Line span of the smallest member
+    let lines: Int
+    let members: [Member]
+    
+    struct Member: Codable {
+        let elementType: String
+        let name: String
+        let location: CodeElementLocation
+        let codePreview: String
     }
 }

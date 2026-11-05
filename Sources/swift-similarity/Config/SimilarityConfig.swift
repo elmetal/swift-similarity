@@ -20,6 +20,7 @@ import Foundation
 /// fail_on_duplicates = false  # --fail-on-duplicates / --no-fail-on-duplicates
 /// rename_cost = 1.0           # --rename-cost
 /// compare = "tree"           # --compare
+/// group = false              # --group / --no-group
 /// ```
 ///
 /// `no_ignore_directives = true`, mirroring the `--no-ignore-directives` flag, is accepted as the
@@ -41,6 +42,7 @@ public struct SimilarityConfig: Equatable, Sendable {
     public var failOnDuplicates: Bool?
     public var renameCost: Double?
     public var compare: String?
+    public var group: Bool?
     /// Keys the file sets that are not supported, for warnings.
     public var unknownKeys: [String] = []
 
@@ -55,10 +57,12 @@ public struct SimilarityConfig: Equatable, Sendable {
         sort: String? = nil,
         failOnDuplicates: Bool? = nil,
         renameCost: Double? = nil,
-        compare: String? = nil
+        compare: String? = nil,
+        group: Bool? = nil
     ) {
         self.renameCost = renameCost
         self.compare = compare
+        self.group = group
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -152,6 +156,8 @@ public struct SimilarityConfig: Equatable, Sendable {
                 config.renameCost = number
             case "compare":
                 config.compare = try string()
+            case "group":
+                config.group = try bool()
             case "exclude":
                 switch value {
                 case .string(let string):
@@ -198,6 +204,8 @@ public struct ScanSettings: Equatable, Sendable {
     public var renameCost: Double
     /// What is compared: "tree" (whole syntax trees, TSED) or "members" (members of types).
     public var compare: String
+    /// Report groups of mutually similar declarations instead of a flat list of pairs.
+    public var group: Bool
 
     public init(
         threshold: Double = defaultThreshold,
@@ -210,10 +218,12 @@ public struct ScanSettings: Equatable, Sendable {
         sort: String = defaultSort,
         failOnDuplicates: Bool = false,
         renameCost: Double = defaultRenameCost,
-        compare: String = defaultCompare
+        compare: String = defaultCompare,
+        group: Bool = false
     ) {
         self.renameCost = renameCost
         self.compare = compare
+        self.group = group
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -243,7 +253,8 @@ public struct ScanSettings: Equatable, Sendable {
             sort: commandLine.sort ?? file?.sort ?? defaults.sort,
             failOnDuplicates: commandLine.failOnDuplicates ?? file?.failOnDuplicates ?? defaults.failOnDuplicates,
             renameCost: commandLine.renameCost ?? file?.renameCost ?? defaults.renameCost,
-            compare: compare
+            compare: compare,
+            group: commandLine.group ?? file?.group ?? defaults.group
         )
     }
 

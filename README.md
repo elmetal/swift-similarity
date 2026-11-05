@@ -100,6 +100,8 @@ ignore_directives = false              # --ignore-directives / --no-ignore-direc
 sort = "priority"                      # --sort (default "similarity")
 fail_on_duplicates = true              # --fail-on-duplicates / --no-fail-on-duplicates (default false)
 rename_cost = 1.0                      # --rename-cost (default 1.0)
+compare = "members"                    # --compare (default "tree")
+group = true                           # --group / --no-group (default false)
 ```
 
 `no_ignore_directives = true` is accepted as well, as the opposite of `ignore_directives`. Each
@@ -230,6 +232,37 @@ JSON output has `priority` and `lines` fields plus `summary.sortOrder`.
 With `--fail-on-duplicates` the exit code is 1 if at least one pair is found and 0 otherwise.
 The results go to stdout (or `--output`) as usual and diagnostics to stderr; invalid arguments
 exit with code 64.
+
+### Grouping copies
+```bash
+swift run swift-similarity-cli scan Sources/ --group
+```
+
+When n declarations are copies of each other, there are n(n−1)/2 similar pairs. `--group` reports
+them as one group instead:
+
+```
+1. 4 Structs, similarity 100.00%
+   Priority: 30.0 (lines: 10)
+   - SplitMix64  Tests/.../APTEDTests.swift:189-198
+   - SplitMix64  Tests/.../PreparedTreeTests.swift:45-54
+   - SeededGenerator  Tests/.../RenameCostPruningTests.swift:13-22
+   - SeededGenerator  Tests/.../TSEDPipelineTests.swift:20-29
+```
+
+**Every two declarations in a group are similar** (complete linkage): pairs are taken from most to
+least similar, and two groups are merged only if every declaration of one is similar to every
+declaration of the other. So `A ~ B` and `B ~ C` do not put `A` and `C` in one group unless
+`A ~ C` too. A declaration is in one group only; the pairs between declarations of different groups
+are listed after the groups, so no pair is dropped.
+
+Groups are sorted by their most similar pair, or with `--sort priority` by
+**(declarations − 1) × lines of the smallest × lowest similarity**, roughly the lines that merging
+the copies would remove (for two declarations, the same as the pair's priority). In JSON,
+`groups` lists each group's members, similarity range, priority and lines, and `similarPairs`
+still lists every pair. `--fail-on-duplicates` still counts pairs.
+
+On swift-syntax (functions at 0.8), 375 pairs become 109 groups plus 36 pairs between groups.
 
 ## Using with AI assistants
 
