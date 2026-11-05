@@ -213,6 +213,9 @@ private func randomTree(size: Int, labels: [String], rng: inout SplitMix64) -> T
     APTED.OperationCosts(),
     APTED.OperationCosts(insertion: 0.8, deletion: 1.0, substitution: 1.0),
     APTED.OperationCosts(insertion: 1.0, deletion: 2.0, substitution: 1.5),
+    // Whole numbers other than 1 (Int32 tables) and a free rename
+    APTED.OperationCosts(insertion: 2.0, deletion: 1.0, substitution: 3.0),
+    APTED.OperationCosts(insertion: 1.0, deletion: 1.0, substitution: 0.0),
 ])
 func testMatchesReferenceImplementation(costs: APTED.OperationCosts) {
     var rng = SplitMix64(state: 42)

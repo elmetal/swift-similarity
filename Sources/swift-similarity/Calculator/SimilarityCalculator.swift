@@ -105,7 +105,17 @@ public class SimilarityCalculator {
     ///   - minimumSimilarity: The TSED score the pair must reach
     /// - Returns: The TSED score when it is at least `minimumSimilarity`, otherwise nil
     public func similarity(between tree1: TreeNode, and tree2: TreeNode, atLeast minimumSimilarity: Double) -> Double? {
-        let maxNodes = Double(max(countNodes(tree1), countNodes(tree2)))
+        var labels = LabelInterner()
+        return similarity(
+            between: PreparedTree(tree1, labels: &labels),
+            and: PreparedTree(tree2, labels: &labels),
+            atLeast: minimumSimilarity
+        )
+    }
+    
+    /// `similarity(between:and:atLeast:)` for trees prepared with the same `LabelInterner`.
+    public func similarity(between tree1: PreparedTree, and tree2: PreparedTree, atLeast minimumSimilarity: Double) -> Double? {
+        let maxNodes = Double(max(tree1.nodeCount, tree2.nodeCount))
         guard maxNodes > 0 else { return 1.0 >= minimumSimilarity ? 1.0 : nil }
         
         // Largest distance that still reaches the threshold: 1 - d / maxNodes >= minimumSimilarity.

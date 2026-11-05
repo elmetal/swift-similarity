@@ -63,6 +63,7 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Parses source files or strings with `SwiftParser`
 
 **CodeElementExtractor**
+- Parses and walks the files in parallel; elements are returned in file order
 - `SyntaxVisitor` that collects functions, initializers, structs, classes, enums, actors, protocols and extensions
 - Defines `CodeElement` (name, signature, file path, start/end line, code preview, `TreeNode`) and `CodeElementType`
 
@@ -80,7 +81,19 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Computes the ordered, labeled tree edit distance with configurable insert / delete / substitute costs
 - Implemented with the **Zhang–Shasha** algorithm, which returns the same distance as APTED
   (Pawlik & Augsten); APTED only differs in its decomposition strategy, which affects running time
-- Time O(|T1|·|T2|·min(depth, leaves)²), memory O(|T1|·|T2|); postorder indexing is iterative to handle deep ASTs
+- Time O(|T1|·|T2|·min(depth, leaves)²), memory O(|T1|·|T2|)
+- Runs on Int32 tables when all costs are whole numbers (the default), Double otherwise
+- `lowerBound`: the larger of the preorder and postorder label-sequence edit distances. With a limit
+  it only computes the band of cells a path within the limit can reach and stops once a row exceeds
+  it; distances within the limit are exact
+
+**PreparedTree / LabelInterner**
+- Everything the distance and its bounds need from one tree (postorder indexes in both orientations,
+  keyroots, label sequences, label histogram), with labels interned to scan-wide integer ids. A scan
+  prepares each element once instead of once per pair; `APTED`, `SimilarityCalculator` and the
+  histogram bound accept prepared trees
+- Built from one preorder walk (`FlatTree`): postorder positions and leftmost leaves follow from
+  subtree sizes and depths, and the mirror image's postorder is the reversed preorder
 
 ### 4. Similarity Engine (`Sources/swift-similarity/Calculator/`)
 
@@ -99,10 +112,12 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
   must be deleted, inserted or renamed)
 - `tsedUpperBound`: `max(1 - δ_lower / MaxNodes, 0)`. If it is below the threshold, the pair is skipped
   with no false negatives
+- `PreparedTree` computes the same bound from interned, sorted histograms; the scanner uses that one
 
 **SimilarityScanner**
-- One exact pipeline: fingerprint each element once, skip nested pairs, skip pairs whose TSED upper
-  bound is below the threshold, then compute the bounded TSED via `SimilarityCalculator` in parallel
+- One exact pipeline: prepare each element's tree once (in parallel), skip nested pairs, skip pairs
+  whose TSED upper bound is below the threshold, then compute the bounded TSED via
+  `SimilarityCalculator` in parallel
 - Splits the pairs into cost-balanced tasks run on every core (see Scheduling below); results are
   sorted by score, ties in input order
 - Reports progress per phase (fingerprinting, comparing) through an optional handler
@@ -126,7 +141,8 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 1. **Exact prefiltering**: the label-histogram TSED upper bound removes pairs that cannot reach the
    threshold, without computing the edit distance. It works best at high thresholds.
 2. **Parallel processing**: cost-balanced tasks on every core with Swift structured concurrency (see Scheduling).
-3. **Efficient edit distance**: Zhang–Shasha with flat arrays, integer label ids and reused DP buffers.
+3. **Efficient edit distance**: trees prepared once per scan; Zhang–Shasha with flat Int32 tables
+   (for whole-number costs) and integer label ids; a banded, early-exit sequence lower bound.
 
 ### Scheduling
 
@@ -146,7 +162,7 @@ removed, and `--optimization` / `--hierarchical` are accepted but ignored.
 1. **Input**: `FileReader` lists Swift files in the target directory
 2. **Parsing & extraction**: `CodeElementExtractor` parses each file and collects the requested element types
 3. **Conversion**: `ASTToTreeConverter` turns each element's syntax node into a labeled `TreeNode`
-4. **Fingerprinting**: an `ASTNodeFingerprint` is built for each element
+4. **Preparation**: a `PreparedTree` is built for each element
 5. **Prefiltering**: pairs whose TSED upper bound is below the threshold are skipped
 6. **Calculation**: `APTED` computes δ and `SimilarityCalculator` computes TSED
 7. **Output**: `OutputFormatter` prints pairs at or above the threshold as text or JSON
