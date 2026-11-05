@@ -36,9 +36,12 @@ public struct CodeElement: Sendable {
     public let treeNode: TreeNode
     /// UTF-8 byte range of the declaration in its file (excluding trivia), if known
     public let byteRange: Range<Int>?
-    
+    /// Members declared directly in the declaration, for types, protocols and extensions;
+    /// nil for functions and initializers. Used by `MemberSimilarityScanner`.
+    public let members: [TypeMember]?
+
     /// Creates a code element
-    public init(elementType: CodeElementType, name: String, signature: String, filePath: String, startLine: Int, endLine: Int, codePreview: String, treeNode: TreeNode, byteRange: Range<Int>? = nil) {
+    public init(elementType: CodeElementType, name: String, signature: String, filePath: String, startLine: Int, endLine: Int, codePreview: String, treeNode: TreeNode, byteRange: Range<Int>? = nil, members: [TypeMember]? = nil) {
         self.elementType = elementType
         self.name = name
         self.signature = signature
@@ -48,6 +51,7 @@ public struct CodeElement: Sendable {
         self.codePreview = codePreview
         self.treeNode = treeNode
         self.byteRange = byteRange
+        self.members = members
     }
     
     /// Whether one of the two elements is declared inside the other (e.g. a class and its method,
@@ -288,7 +292,8 @@ private class CodeElementVisitor: SyntaxVisitor {
             endLine: endLine,
             codePreview: codePreview,
             treeNode: treeNode,
-            byteRange: node.positionAfterSkippingLeadingTrivia.utf8Offset..<node.endPositionBeforeTrailingTrivia.utf8Offset
+            byteRange: node.positionAfterSkippingLeadingTrivia.utf8Offset..<node.endPositionBeforeTrailingTrivia.utf8Offset,
+            members: Syntax(node).asProtocol(DeclGroupSyntax.self).map { TypeMember.members(of: $0) }
         )
     }
     

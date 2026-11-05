@@ -19,6 +19,7 @@ import Foundation
 /// sort = "similarity"         # --sort
 /// fail_on_duplicates = false  # --fail-on-duplicates / --no-fail-on-duplicates
 /// rename_cost = 1.0           # --rename-cost
+/// compare = "tree"           # --compare
 /// ```
 ///
 /// `no_ignore_directives = true`, mirroring the `--no-ignore-directives` flag, is accepted as the
@@ -39,6 +40,7 @@ public struct SimilarityConfig: Equatable, Sendable {
     public var sort: String?
     public var failOnDuplicates: Bool?
     public var renameCost: Double?
+    public var compare: String?
     /// Keys the file sets that are not supported, for warnings.
     public var unknownKeys: [String] = []
 
@@ -52,9 +54,11 @@ public struct SimilarityConfig: Equatable, Sendable {
         ignoreDirectives: Bool? = nil,
         sort: String? = nil,
         failOnDuplicates: Bool? = nil,
-        renameCost: Double? = nil
+        renameCost: Double? = nil,
+        compare: String? = nil
     ) {
         self.renameCost = renameCost
+        self.compare = compare
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -146,6 +150,8 @@ public struct SimilarityConfig: Equatable, Sendable {
                     throw ParseError(line: line, message: "'\(key)' must be a number")
                 }
                 config.renameCost = number
+            case "compare":
+                config.compare = try string()
             case "exclude":
                 switch value {
                 case .string(let string):
@@ -174,6 +180,9 @@ public struct ScanSettings: Equatable, Sendable {
     public static let defaultSort = "similarity"
     /// Cost of renaming (relabeling) a node, as in the TSED paper (arXiv:2404.08817).
     public static let defaultRenameCost = 1.0
+    public static let defaultCompare = "tree"
+    /// The element type used with `compare = "members"` when none is given: every kind of type.
+    public static let defaultMemberElementType = "all"
 
     public var threshold: Double
     public var elementType: String
@@ -187,6 +196,8 @@ public struct ScanSettings: Equatable, Sendable {
     public var failOnDuplicates: Bool
     /// Cost of a node rename in the tree edit distance; insertions and deletions cost 1.
     public var renameCost: Double
+    /// What is compared: "tree" (whole syntax trees, TSED) or "members" (members of types).
+    public var compare: String
 
     public init(
         threshold: Double = defaultThreshold,
@@ -198,9 +209,11 @@ public struct ScanSettings: Equatable, Sendable {
         ignoreDirectives: Bool = true,
         sort: String = defaultSort,
         failOnDuplicates: Bool = false,
-        renameCost: Double = defaultRenameCost
+        renameCost: Double = defaultRenameCost,
+        compare: String = defaultCompare
     ) {
         self.renameCost = renameCost
+        self.compare = compare
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -216,9 +229,12 @@ public struct ScanSettings: Equatable, Sendable {
     /// over the default. Exclude patterns from both are used.
     public static func resolve(commandLine: SimilarityConfig, file: SimilarityConfig?) -> ScanSettings {
         let defaults = ScanSettings()
+        let compare = commandLine.compare ?? file?.compare ?? defaults.compare
+        // Members are compared between types, so that mode defaults to every kind of type.
+        let defaultElementType = compare.lowercased() == "members" ? defaultMemberElementType : defaults.elementType
         return ScanSettings(
             threshold: commandLine.threshold ?? file?.threshold ?? defaults.threshold,
-            elementType: commandLine.elementType ?? file?.elementType ?? defaults.elementType,
+            elementType: commandLine.elementType ?? file?.elementType ?? defaultElementType,
             exclude: (file?.exclude ?? []) + commandLine.exclude,
             minLines: commandLine.minLines ?? file?.minLines ?? defaults.minLines,
             minTokens: commandLine.minTokens ?? file?.minTokens ?? defaults.minTokens,
@@ -226,7 +242,8 @@ public struct ScanSettings: Equatable, Sendable {
             ignoreDirectives: commandLine.ignoreDirectives ?? file?.ignoreDirectives ?? defaults.ignoreDirectives,
             sort: commandLine.sort ?? file?.sort ?? defaults.sort,
             failOnDuplicates: commandLine.failOnDuplicates ?? file?.failOnDuplicates ?? defaults.failOnDuplicates,
-            renameCost: commandLine.renameCost ?? file?.renameCost ?? defaults.renameCost
+            renameCost: commandLine.renameCost ?? file?.renameCost ?? defaults.renameCost,
+            compare: compare
         )
     }
 

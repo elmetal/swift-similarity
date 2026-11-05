@@ -112,6 +112,44 @@ same shape (for example two functions that each return a call with forwarded arg
 result was about the same as keeping 1.0 and lowering the threshold by 0.01–0.03. To find more
 pairs, lowering `--threshold` has much the same effect.
 
+### Comparing type members
+`--compare members` compares types by their members instead of their syntax trees. It finds
+types with the same shape, such as two DTOs with the same fields or an enum copied into another
+module, even when the members are in a different order or the method bodies differ.
+
+```bash
+# Every kind of type (the element type defaults to all types in this mode)
+swift run swift-similarity-cli scan Sources/ --compare members
+
+# Only structs, with a lower threshold
+swift run swift-similarity-cli scan Sources/ --compare members --element-type struct --threshold 0.6
+```
+
+Each member declared directly in a type, protocol or extension is reduced to its kind (property,
+method, initializer, subscript, enum case, typealias, associated type), whether it is `static`, its
+name (methods and initializers with their argument labels, such as `update(with:)`) and its type
+(for methods the signature, for enum cases the associated values). Whitespace is ignored, and
+`Optional<T>`, `Array<T>` and `Dictionary<K, V>` match `T?`, `[T]` and `[K: V]`. Bodies,
+attributes, access modifiers and the types' own names are not compared. Nested types are not
+members; they are compared as types of their own.
+
+```
+similarity = (exact + 0.5 × partial) / max(members of either type)
+```
+
+`exact` counts members that match in kind, `static`, name (ignoring case) and type. Among the
+rest, `partial` counts those that match in kind and `static` and in either the name or the type,
+so a renamed field or a changed type counts half. Each member matches at most once. A property
+whose type is inferred (`var count = 0`) only matches a property with the same name.
+
+Only types of the same group are compared: structs, classes, enums and actors with each other,
+protocols with protocols, and extensions with extensions. Comparing a protocol with the types that
+conform to it would mostly report the conformance. Extensions that implement the same protocol for
+different types still score high, since they declare the same members. Types with fewer than two
+members are skipped, as are `--min-lines` short declarations and `similarity-ignore` ones.
+`--rename-cost`, `--body-only`, `--min-tokens` and `--advanced` apply to `--compare tree` only.
+In `similarity.toml`, set `compare = "members"`.
+
 ### Performance
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many
 pairs were skipped by the exact filters and how long each phase took. `--optimization` and

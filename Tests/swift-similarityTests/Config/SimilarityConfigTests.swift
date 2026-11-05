@@ -104,6 +104,26 @@ func testRenameCost() throws {
     #expect(fromCLI.renameCost == 0.5)
 }
 
+@Test("Reads compare, and members mode defaults the element type to all types")
+func testCompareMode() throws {
+    let config = try SimilarityConfig.parse("compare = \"members\"\n")
+    #expect(config.compare == "members")
+
+    let defaults = ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil)
+    #expect(defaults.compare == "tree")
+    #expect(defaults.elementType == ScanSettings.defaultElementType)
+
+    let members = ScanSettings.resolve(commandLine: SimilarityConfig(), file: config)
+    #expect(members.compare == "members")
+    #expect(members.elementType == "all")
+
+    // An element type given anywhere wins over the members default.
+    let structs = ScanSettings.resolve(commandLine: SimilarityConfig(elementType: "struct"), file: config)
+    #expect(structs.elementType == "struct")
+    let tree = ScanSettings.resolve(commandLine: SimilarityConfig(compare: "tree"), file: config)
+    #expect(tree.elementType == ScanSettings.defaultElementType)
+}
+
 // MARK: - Discovery
 
 @Test("find(from:) walks up parent directories to the nearest config file")

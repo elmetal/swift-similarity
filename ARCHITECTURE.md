@@ -49,7 +49,7 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 
 **ScanCommand**
 - Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`), threshold, output format, output file, code previews, thread count, progress, statistics
-- Extracts elements, then runs `SimilarityScanner`
+- Extracts elements, then runs `SimilarityScanner` (`--compare tree`, the default) or `MemberSimilarityScanner` (`--compare members`)
 - `--optimization` and `--hierarchical` are deprecated no-ops kept for existing scripts; they print a notice on stderr
 - `--advanced` adds structural / label / depth metrics (`AdvancedSimilarityMetrics`) for each reported pair; pairs are still selected by TSED
 
@@ -125,6 +125,23 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 **ScanStatistics**
 - How many pairs were nested, ruled out by the upper bound or compared with TSED, the number of
   similar pairs, and the time of each phase; reported by `scan --stats`
+
+### 5b. Member Comparison (`Sources/swift-similarity/Members/`)
+
+**TypeMember**
+- A member declared directly in a type, protocol or extension: kind, `static`, name (with argument
+  labels) and normalized type or signature. `CodeElementExtractor` records them in
+  `CodeElement.members` for every declaration group.
+
+**MemberSimilarity**
+- `(exact + 0.5 × partial) / max(count1, count2)`: members matching in kind, `static`, name and
+  type count 1; of the rest, those matching in name or in type count 0.5; each member matches once
+- `upperBound(count1:count2:)` = `min / max` skips pairs whose member counts already rule them out
+
+**MemberSimilarityScanner**
+- Compares elements with at least two members, within groups (concrete types, protocols,
+  extensions), skipping nested pairs; returns the same `Result` and `ScanStatistics` as
+  `SimilarityScanner`, in the same order (most similar first, ties in input order)
 
 ### 6. Data Models (`Sources/swift-similarity/Models/`)
 
