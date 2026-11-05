@@ -371,8 +371,11 @@ public final class HierarchicalProcessor: Sendable {
             }
         }
         
-        // Keep the deterministic candidate order regardless of completion order
-        let results = indexedResults.sorted { $0.index < $1.index }.map(\.result)
+        // Most similar first, ties in candidate order, regardless of completion order
+        // (the same order as VectorizedPrefilteringEngine).
+        let results = indexedResults
+            .sorted { ($0.result.2, $1.index) > ($1.result.2, $0.index) }
+            .map(\.result)
         
         let endTime = ProcessInfo.processInfo.systemUptime
         let processingTime = endTime - stageStartTime

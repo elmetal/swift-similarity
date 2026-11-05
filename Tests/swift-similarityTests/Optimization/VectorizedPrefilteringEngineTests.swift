@@ -299,3 +299,51 @@ private func createTestElements(count: Int) -> [CodeElement] {
     
     return elements
 } 
+@Test("Tasks cover every pair exactly once, heaviest rows first", arguments: [
+    ([5, 4, 3, 2, 1], 1),
+    ([100, 90, 3, 2, 2, 1, 1, 1], 4),
+    ([7], 2),
+    (Array(repeating: 10, count: 40), 12),
+])
+func testPairTasksCoverAllPairs(sizes: [Int], workerCount: Int) {
+    let tasks = VectorizedPrefilteringEngine.makeTasks(sizes: sizes, workerCount: workerCount)
+    var seen = Set<[Int]>()
+    for task in tasks {
+        for position in task.positions {
+            #expect(task.row < position)
+            #expect(seen.insert([task.row, position]).inserted)
+        }
+    }
+    #expect(seen.count == sizes.count * (sizes.count - 1) / 2)
+    #expect(tasks.map(\.row) == tasks.map(\.row).sorted())
+}
+
+@Test("Results are sorted by score and do not depend on scheduling")
+func testVectorizedPrefilteringEngineStableOrder() async throws {
+    let source = """
+    func a(_ x: Int) -> Int { return x + 1 }
+    func b(_ y: Int) -> Int { return y + 2 }
+    func c(_ z: Int) -> Int { let w = z * 2; return w + 3 }
+    func d(_ v: [Int]) -> Int { var total = 0; for item in v { total += item }; return total }
+    func e(_ v: [Int]) -> Int { var sum = 0; for item in v { sum += item * 2 }; return sum }
+    struct S { let a: Int; let b: Int }
+    struct T { let c: Int; let d: Int }
+    """
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("StableOrder_\(UUID().uuidString).swift")
+    try source.write(to: url, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let elements = try CodeElementExtractor().extractElements(from: url.path)
+    
+    func describe(_ results: [(CodeElement, CodeElement, Double)]) -> [String] {
+        results.map { "\($0.0.name)-\($0.1.name)-\($0.2)" }
+    }
+    let reference = describe(try await VectorizedPrefilteringEngine(configuration: .init(maxConcurrency: 1))
+        .findCandidates(elements: elements, threshold: 0.2))
+    #expect(!reference.isEmpty)
+    for _ in 0..<5 {
+        let results = try await VectorizedPrefilteringEngine(configuration: .init(maxConcurrency: 8))
+            .findCandidates(elements: elements, threshold: 0.2)
+        #expect(describe(results) == reference)
+        #expect(results.map(\.2) == results.map(\.2).sorted(by: >))
+    }
+}

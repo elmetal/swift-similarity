@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import swift_similarity
 
@@ -67,7 +68,7 @@ struct AdaptiveConfigurationTests {
         let config = VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: 300)
         
         #expect(config.optimizationLevel == .balanced)
-        #expect(config.maxConcurrency >= 2 && config.maxConcurrency <= 8)
+        #expect(config.maxConcurrency == ProcessInfo.processInfo.processorCount)
         #expect(config.blockSize >= 500 && config.blockSize <= 2000)
     }
     
@@ -76,7 +77,7 @@ struct AdaptiveConfigurationTests {
         let config = VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: 1000)
         
         #expect(config.optimizationLevel == .conservative)
-        #expect(config.maxConcurrency >= 2 && config.maxConcurrency <= 4)
+        #expect(config.maxConcurrency == ProcessInfo.processInfo.processorCount)
         #expect(config.blockSize >= 1000 && config.blockSize <= 5000)
     }
     
@@ -85,7 +86,7 @@ struct AdaptiveConfigurationTests {
         let config = VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: 5000)
         
         #expect(config.optimizationLevel == .conservative)
-        #expect(config.maxConcurrency == 2) // Minimal parallelism
+        #expect(config.maxConcurrency == ProcessInfo.processInfo.processorCount)
         #expect(config.blockSize >= 2000 && config.blockSize <= 10000)
     }
     

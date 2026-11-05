@@ -21,16 +21,9 @@ swift run swift-similarity-cli scan Sources/ --element-type init
 swift run swift-similarity-cli scan Sources/ --element-type all
 ```
 
-### Performance optimization
-`--optimization` only changes how the work is scheduled (block size and parallelism); every level
-reports the same pairs.
-```bash
-# Larger blocks
-swift run swift-similarity-cli scan Sources/ --optimization aggressive
-
-# Smaller blocks
-swift run swift-similarity-cli scan Sources/ --optimization conservative
-```
+### Performance
+`scan` uses every core. `--threads N` limits the number of parallel tasks. `--optimization` is
+deprecated and has no effect.
 
 ### Advanced options
 ```bash
