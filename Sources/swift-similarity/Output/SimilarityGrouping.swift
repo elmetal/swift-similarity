@@ -52,9 +52,9 @@ public enum SimilarityGrouping {
         let sortedIndices = pairs.indices.sorted { (pairs[$0].2, $1) > (pairs[$1].2, $0) }
 
         var elements: [CodeElement] = []
-        var indexOf: [ElementKey: Int] = [:]
+        var indexOf: [ElementIdentity: Int] = [:]
         func index(of element: CodeElement) -> Int {
-            let key = ElementKey(element)
+            let key = ElementIdentity(element)
             if let index = indexOf[key] { return index }
             indexOf[key] = elements.count
             elements.append(element)
@@ -124,21 +124,6 @@ public enum SimilarityGrouping {
         return (sortedGroups, SimilarityRanking.sorted(pairsBetweenGroups, by: order))
     }
 
-    /// Identifies a declaration across pairs.
-    private struct ElementKey: Hashable {
-        let filePath: String
-        let start: Int
-        let end: Int
-        let name: String
-
-        init(_ element: CodeElement) {
-            filePath = element.filePath
-            start = element.byteRange?.lowerBound ?? element.startLine
-            end = element.byteRange?.upperBound ?? element.endLine
-            name = element.name
-        }
-    }
-
     /// An unordered pair of element indices.
     private struct Edge: Hashable {
         let low: Int
@@ -148,5 +133,20 @@ public enum SimilarityGrouping {
             low = min(a, b)
             high = max(a, b)
         }
+    }
+}
+
+/// Identifies a declaration across pairs (by file, position and name).
+struct ElementIdentity: Hashable {
+    let filePath: String
+    let start: Int
+    let end: Int
+    let name: String
+
+    init(_ element: CodeElement) {
+        filePath = element.filePath
+        start = element.byteRange?.lowerBound ?? element.startLine
+        end = element.byteRange?.upperBound ?? element.endLine
+        name = element.name
     }
 }

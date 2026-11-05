@@ -14,6 +14,10 @@ let package = Package(
         .executable(
             name: "swift-similarity-cli",
             targets: ["swift-similarity-cli"]),
+        // `swift package similarity`: runs `swift-similarity-cli scan` on the package's sources.
+        .plugin(
+            name: "SimilarityPlugin",
+            targets: ["SimilarityPlugin"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", 
@@ -36,6 +40,16 @@ let package = Package(
                 "swift-similarity",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]),
+        .plugin(
+            name: "SimilarityPlugin",
+            capability: .command(
+                intent: .custom(
+                    verb: "similarity",
+                    description: "Find similar Swift declarations in the package's source targets"
+                )
+            ),
+            dependencies: ["swift-similarity-cli"]
+        ),
         .testTarget(
             name: "swift-similarityTests",
             dependencies: ["swift-similarity"]

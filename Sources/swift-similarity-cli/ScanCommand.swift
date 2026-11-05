@@ -29,7 +29,7 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Also report structural, label and depth similarity for each pair (does not change which pairs are found)")
     var advanced: Bool = false
     
-    @Option(name: .shortAndLong, help: "Output format (text/json)")
+    @Option(name: .shortAndLong, help: "Output format: text, json, xcode (path:line:column: warning: lines for an Xcode Run Script phase) or github (GitHub Actions annotations); xcode and github write one warning per declaration that has similar declarations")
     var format: String = "text"
     
     @Option(name: .shortAndLong, help: "Output file path")
@@ -124,8 +124,8 @@ struct ScanCommand: AsyncParsableCommand {
                 throw ValidationError("--advanced reports syntax tree metrics and cannot be used with --compare members.")
             }
         }
-        guard ["text", "json"].contains(format.lowercased()) else {
-            throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
+        guard Self.outputFormats.contains(format.lowercased()) else {
+            throw ValidationError("Invalid output format '\(format)'. Valid formats: \(Self.outputFormats.joined(separator: ", "))")
         }
         guard settings.minLines >= 0 else {
             throw ValidationError("Minimum lines must be 0 (no limit) or more, got \(settings.minLines).")
@@ -252,7 +252,21 @@ struct ScanCommand: AsyncParsableCommand {
                 grouped: settings.group
             )
             
-            if format == "json" {
+            if let style = DiagnosticFormatter.Style(rawValue: format) {
+                if settings.group || showIgnored || showCode || advanced {
+                    printDiagnostic("Note: --format \(format) writes one warning per declaration; --group, --show-ignored, --print and --advanced do not apply")
+                }
+                // GitHub resolves annotation paths against the repository root, which is the
+                // working directory of a workflow step; Xcode needs absolute paths to open files.
+                let currentDirectory = FileManager.default.currentDirectoryPath
+                let diagnostics = DiagnosticFormatter.format(
+                    similarPairs,
+                    style: style,
+                    relativeTo: style == .github ? currentDirectory : nil,
+                    messagePathsRelativeTo: currentDirectory
+                )
+                try formatter.write(diagnostics, to: output)
+            } else if format == "json" {
                 try formatter.outputJSON(similarPairs: similarPairs, to: output)
             } else {
                 try formatter.outputText(similarPairs: similarPairs, to: output)
@@ -329,6 +343,9 @@ struct ScanCommand: AsyncParsableCommand {
         compare = settings.compare
         group = settings.group
     }
+    
+    /// Accepted `--format` values.
+    static let outputFormats = ["text", "json"] + DiagnosticFormatter.Style.allCases.map(\.rawValue)
     
     /// Accepted `--element-type` values, for help and error messages.
     static let elementTypeNames = (CodeElementType.allCases.map(\.rawValue) + ["all"]).joined(separator: ", ")
