@@ -20,9 +20,12 @@ let package = Package(
             targets: ["SimilarityPlugin"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", 
-                 from: "601.0.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser.git", 
+        // A range of major versions, so that packages using another swift-syntax version (such as
+        // macro packages) can still add this one, for example for its command plugin. Every
+        // version in the range must build: CI tests the resolved (newest) one.
+        .package(url: "https://github.com/swiftlang/swift-syntax.git",
+                 "601.0.0"..<"605.0.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git",
                  from: "1.3.0")
     ],
     targets: [
