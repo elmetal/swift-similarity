@@ -108,7 +108,9 @@ public class SimilarityCalculator {
         let maxNodes = Double(max(countNodes(tree1), countNodes(tree2)))
         guard maxNodes > 0 else { return 1.0 >= minimumSimilarity ? 1.0 : nil }
         
-        let upperBound = max(1.0 - apted.lowerBound(between: tree1, and: tree2) / maxNodes, 0.0)
+        // Largest distance that still reaches the threshold: 1 - d / maxNodes >= minimumSimilarity.
+        let maxDistance = (1.0 - minimumSimilarity) * maxNodes
+        let upperBound = max(1.0 - apted.lowerBound(between: tree1, and: tree2, exceeding: maxDistance) / maxNodes, 0.0)
         guard upperBound >= minimumSimilarity else { return nil }
         
         let score = max(1.0 - apted.editDistance(between: tree1, and: tree2) / maxNodes, 0.0)
