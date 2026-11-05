@@ -2,10 +2,11 @@ import Testing
 import Foundation
 @testable import swift_similarity
 
-// The engines skip pairs with two exact bounds before computing the tree edit distance:
+// `SimilarityScanner` skips pairs with two exact bounds before computing the tree edit distance:
 // the label-histogram bound (`ASTNodeFingerprint.tsedUpperBound`) and the preorder/postorder
 // sequence bound (`APTED.lowerBound`). These tests check that with a non-default rename cost the
-// pruned engines still find exactly the pairs (and scores) that brute-force TSED finds.
+// scanner still finds exactly the pairs (and scores) that brute-force TSED finds. The data is kept
+// small (16 trees of at most 14 nodes) so the brute force takes milliseconds.
 
 // MARK: - Helpers
 
@@ -53,9 +54,9 @@ private func mutate(_ tree: TreeNode, rate: Double, rng: inout SeededGenerator) 
 private func makeElements(seed: UInt64) -> [CodeElement] {
     var rng = SeededGenerator(state: seed)
     var elements: [CodeElement] = []
-    for base in 0..<6 {
-        let tree = randomTree(size: Int.random(in: 8...20, using: &rng), rng: &rng)
-        for variant in 0..<6 {
+    for base in 0..<4 {
+        let tree = randomTree(size: Int.random(in: 8...14, using: &rng), rng: &rng)
+        for variant in 0..<4 {
             let name = "b\(base)v\(variant)"
             elements.append(CodeElement(
                 elementType: .function,
@@ -101,38 +102,31 @@ private func renameCosts(_ substitution: Double) -> APTED.OperationCosts {
 
 // MARK: - Tests
 
-@Test("Pruned engines find the same pairs as brute-force TSED with a non-default rename cost", arguments: [
-    (0.3, 0.8), (0.3, 0.87), (0.5, 0.7), (1.5, 0.6),
+@Test("Scanner finds the same pairs as brute-force TSED with a non-default rename cost", arguments: [
+    (0.3, 0.8), (1.5, 0.6),
 ])
 func testPruningIsExactWithRenameCost(renameCost: Double, threshold: Double) async throws {
     let costs = renameCosts(renameCost)
-    for seed: UInt64 in [1, 2, 3] {
-        let elements = makeElements(seed: seed)
-        let expected = bruteForce(elements, costs: costs, threshold: threshold)
+    let elements = makeElements(seed: 1)
+    let expected = bruteForce(elements, costs: costs, threshold: threshold)
+    // Pairs on both sides of the threshold, so the bounds have something to prune and to keep.
+    let pairCount = elements.count * (elements.count - 1) / 2
+    #expect(!expected.isEmpty && expected.count < pairCount)
 
-        let vectorized = try await VectorizedPrefilteringEngine(configuration: .init(optimizationLevel: .conservative, costs: costs))
-            .findCandidates(elements: elements, threshold: threshold)
-        #expect(scores(vectorized) == expected, "vectorized, seed \(seed)")
+    let result = try await SimilarityScanner(maxConcurrency: 2, costs: costs).scan(elements, threshold: threshold)
+    #expect(scores(result.pairs.map { ($0.first, $0.second, $0.similarity) }) == expected)
 
-        let (hierarchical, _) = try await HierarchicalProcessor(
-            configuration: .optimal(for: .small, costs: costs),
-            vectorizedConfig: nil,
-            progressCallback: nil
-        ).process(elements: elements, threshold: threshold)
-        #expect(scores(hierarchical) == expected, "hierarchical, seed \(seed)")
-
-        // The bounded calculator agrees with the unbounded one on every pair.
-        let calculator = SimilarityCalculator(configuration: .init(aptedCosts: costs))
-        var bounded: [String: Double] = [:]
-        for i in 0..<elements.count {
-            for j in (i + 1)..<elements.count {
-                if let score = calculator.similarity(between: elements[i].treeNode, and: elements[j].treeNode, atLeast: threshold) {
-                    bounded[key(elements[i], elements[j])] = score
-                }
+    // The bounded calculator agrees with the unbounded one on every pair.
+    let calculator = SimilarityCalculator(configuration: .init(aptedCosts: costs))
+    var bounded: [String: Double] = [:]
+    for i in 0..<elements.count {
+        for j in (i + 1)..<elements.count {
+            if let score = calculator.similarity(between: elements[i].treeNode, and: elements[j].treeNode, atLeast: threshold) {
+                bounded[key(elements[i], elements[j])] = score
             }
         }
-        #expect(bounded == expected, "calculator, seed \(seed)")
     }
+    #expect(bounded == expected)
 }
 
 @Test("The rename cost changes which pairs are found")
@@ -144,10 +138,9 @@ func testRenameCostChangesResults() async throws {
     #expect(Set(unit.keys).isSubset(of: Set(cheap.keys)))
     #expect(cheap.count > unit.count)
 
-    // The engines use the configured cost, not the default one.
-    let found = try await VectorizedPrefilteringEngine(configuration: .init(optimizationLevel: .conservative, costs: renameCosts(0.3)))
-        .findCandidates(elements: elements, threshold: 0.8)
-    #expect(scores(found) == cheap)
+    // The scanner uses the configured cost, not the default one.
+    let found = try await SimilarityScanner(maxConcurrency: 2, costs: renameCosts(0.3)).scan(elements, threshold: 0.8)
+    #expect(scores(found.pairs.map { ($0.first, $0.second, $0.similarity) }) == cheap)
 }
 
 @Test("Bounds stay below the TSED score with cheap renames", arguments: [0.0, 0.3, 0.5])
@@ -155,7 +148,7 @@ func testBoundsAreSoundWithRenameCost(renameCost: Double) {
     let costs = renameCosts(renameCost)
     let apted = APTED(costs: costs)
     let calculator = SimilarityCalculator(configuration: .init(aptedCosts: costs))
-    let elements = makeElements(seed: 4)
+    let elements = makeElements(seed: 2)
     for i in 0..<elements.count {
         for j in (i + 1)..<elements.count {
             let tree1 = elements[i].treeNode

@@ -54,13 +54,10 @@ struct ScanCommand: AsyncParsableCommand {
 
     // MARK: - Scoring Options
 
-    @Option(name: .long, help: ArgumentHelp("Cost of renaming a node (changing its syntax kind) in the tree edit distance; insertions and deletions cost 1. Lower values make structural variants score higher (default: \(ScanSettings.defaultRenameCost))", valueName: "cost"))
+    @Option(name: .long, help: ArgumentHelp("Cost of renaming a node (changing its label, such as + to - or one syntax kind to another) in the tree edit distance; insertions and deletions cost 1. Lower values make structural variants score higher (default: \(ScanSettings.defaultRenameCost))", valueName: "cost"))
     var renameCost: Double?
     
-    // MARK: - Performance Optimization Options
-    
-    @Option(name: .long, help: "Deprecated, has no effect: every level schedules the work the same way (conservative, balanced, aggressive, auto)")
-    var optimization: String = "auto"
+    // MARK: - Performance Options
     
     @Flag(name: .long, help: "Show progress during similarity calculation")
     var progress: Bool = false
@@ -68,10 +65,13 @@ struct ScanCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Number of threads for parallel processing (0 for automatic)")
     var threads: Int = 0
     
-    @Flag(name: .long, help: "Show detailed performance statistics")
+    @Flag(name: .long, help: "Show pair counts and timings of the scan")
     var stats: Bool = false
     
-    @Flag(name: .long, help: "Use hierarchical processing pipeline for massive datasets (Phase 11)")
+    @Option(name: .long, help: ArgumentHelp("Deprecated, has no effect: every scan runs the same pipeline"))
+    var optimization: String?
+    
+    @Flag(name: .long, help: ArgumentHelp("Deprecated, has no effect: every scan runs the same pipeline"))
     var hierarchical: Bool = false
     
     // MARK: - Reporting Options
@@ -100,9 +100,6 @@ struct ScanCommand: AsyncParsableCommand {
         }
         guard ["text", "json"].contains(format.lowercased()) else {
             throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
-        }
-        guard Self.optimizationLevel(for: optimization) != nil else {
-            throw ValidationError("Invalid optimization level '\(optimization)'. Valid levels: conservative, balanced, aggressive, auto")
         }
         guard settings.minLines >= 0 else {
             throw ValidationError("Minimum lines must be 0 (no limit) or more, got \(settings.minLines).")
@@ -133,9 +130,14 @@ struct ScanCommand: AsyncParsableCommand {
         format = format.lowercased()
         
         let targetElementTypes = Self.elementTypes(for: elementType)!
-        let optimizationLevel = Self.optimizationLevel(for: optimization)!
         let sortOrder = SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased())!
         
+        if optimization != nil {
+            printDiagnostic("Warning: --optimization is deprecated and has no effect; every scan runs the same pipeline")
+        }
+        if hierarchical {
+            printDiagnostic("Warning: --hierarchical is deprecated and has no effect; every scan runs the same pipeline")
+        }
         printDiagnostic("Scanning: \(paths.joined(separator: ", "))")
         if !exclude.isEmpty {
             printDiagnostic("Exclude: \(exclude.joined(separator: ", "))")
@@ -146,7 +148,6 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
         printDiagnostic("Rename cost: \(settings.renameCost)")
         printDiagnostic("Advanced metrics: \(advanced)")
-        printDiagnostic("Optimization: \(optimization)")
         printDiagnostic("")
         
         var pairCount = 0
@@ -166,37 +167,23 @@ struct ScanCommand: AsyncParsableCommand {
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
             
-            // Calculate similarity using selected processing method
-            let (unsortedPairs, performanceStats): ([(CodeElement, CodeElement, Double)], PerformanceStatistics?) = if elements.count < 2 {
-                // Still write the (empty) result so JSON consumers always get a document.
-                ([], nil)
-            } else if hierarchical {
-                try await calculateWithHierarchical(
-                    elements: elements,
-                    threshold: threshold,
-                    costs: settings.operationCosts,
-                    optimizationLevel: optimizationLevel
-                )
-            } else {
-                try await calculateWithOptimization(
-                    elements: elements,
-                    threshold: threshold,
-                    costs: settings.operationCosts,
-                    optimizationLevel: optimizationLevel
-                )
-            }
+            let scanner = SimilarityScanner(
+                maxConcurrency: threads,
+                progressHandler: progress ? Self.printProgress : nil,
+                costs: settings.operationCosts
+            )
+            let result = try await scanner.scan(elements, threshold: threshold)
+            let unsortedPairs = result.pairs.map { ($0.first, $0.second, $0.similarity) }
             let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
             
             printDiagnostic("Found \(similarPairs.count) similar pairs")
             
-            // Show performance statistics if requested
             if elements.count < 2 {
                 printDiagnostic("Need at least 2 \(elementDescription) to compare")
             }
             
-            // Show performance statistics if requested
-            if stats, let performanceStats {
-                showPerformanceStatistics(performanceStats)
+            if stats {
+                showStatistics(result.statistics)
             }
             
             // Create output formatter
@@ -295,275 +282,39 @@ struct ScanCommand: AsyncParsableCommand {
         return CodeElementType(rawValue: value).map { [$0] }
     }
     
-    /// The optimization level selected by `--optimization`, or nil if the value is unknown.
-    private static func optimizationLevel(for value: String) -> VectorizedPrefilteringEngine.OptimizationLevel? {
-        VectorizedPrefilteringEngine.OptimizationLevel(rawValue: value.lowercased())
+    /// Writes a progress line to stderr, ending it when a phase is done.
+    private static func printProgress(_ progress: SimilarityScanner.Progress) {
+        var text = "\r\(progress.phase == .fingerprinting ? "Fingerprinting" : "Comparing"): \(Int(progress.completionPercentage))%"
+        if progress.pairsFound > 0 {
+            text += " - \(progress.pairsFound) similar pairs"
+        }
+        if let remaining = progress.estimatedTimeRemaining, progress.completed < progress.total {
+            text += " - ETA: \(String(format: "%.1f", remaining))s"
+        }
+        // Pad over the end of a longer previous line.
+        text += "    "
+        if progress.completed == progress.total {
+            text += "\n"
+        }
+        try? FileHandle.standardError.write(contentsOf: Data(text.utf8))
     }
     
-    /// Calculates similarity with performance optimization
-    private func calculateWithOptimization(
-        elements: [CodeElement],
-        threshold: Double,
-        costs: APTED.OperationCosts,
-        optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
-    ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
-        
-        let startTime = ProcessInfo.processInfo.systemUptime
-        
-        // Create vectorized prefiltering engine configuration
-        let progressCallback: (@Sendable (VectorizedPrefilteringEngine.VectorizedProgress) -> Void)?
-        if progress {
-            progressCallback = { progressInfo in
-                let percentage = Int(progressInfo.completionPercentage)
-                
-                var progressText = "\rProgress: \(percentage)%"
-                if progressInfo.candidatesFound > 0 {
-                    progressText += " - \(progressInfo.candidatesFound) candidates found"
-                }
-                if let remaining = progressInfo.estimatedTimeRemaining {
-                    progressText += " - ETA: \(String(format: "%.1f", remaining))s"
-                }
-                
-                // Use FileHandle for immediate output without buffering
-                if let data = progressText.data(using: .utf8) {
-                    try? FileHandle.standardError.write(contentsOf: data)
-                }
-                
-                if progressInfo.blocksProcessed == progressInfo.totalBlocks {
-                    try? FileHandle.standardError.write(contentsOf: Data("\n".utf8))
-                }
-            }
-        } else {
-            progressCallback = nil
+    /// Shows pair counts and timings of the scan
+    private func showStatistics(_ stats: ScanStatistics) {
+        func percent(_ count: Int) -> String {
+            String(format: "%.1f%%", stats.totalPairs > 0 ? Double(count) / Double(stats.totalPairs) * 100 : 0)
         }
-        
-        // Use adaptive configuration for optimal performance (Phase 10)
-        let vectorizedConfig: VectorizedPrefilteringEngine.Configuration
-        if optimizationLevel == .auto {
-            // Adaptive configuration based on dataset size and system resources
-            var adaptiveConfig = VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: elements.count)
-            
-            // Override thread count if specified by user
-            if threads > 0 {
-                adaptiveConfig = VectorizedPrefilteringEngine.Configuration(
-                    optimizationLevel: adaptiveConfig.optimizationLevel,
-                    blockSize: adaptiveConfig.blockSize,
-                    maxConcurrency: threads,
-                    progressCallback: progressCallback,
-                    costs: costs
-                )
-            } else {
-                adaptiveConfig = VectorizedPrefilteringEngine.Configuration(
-                    optimizationLevel: adaptiveConfig.optimizationLevel,
-                    blockSize: adaptiveConfig.blockSize,
-                    maxConcurrency: adaptiveConfig.maxConcurrency,
-                    progressCallback: progressCallback,
-                    costs: costs
-                )
-            }
-            vectorizedConfig = adaptiveConfig
-            
-            // Display relevant configuration info for user
-            let scale = VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.from(elementCount: elements.count)
-            printDiagnostic("Auto-detected: \(scale.rawValue) project, using \(vectorizedConfig.maxConcurrency) threads")
-            printDiagnostic("")
-        } else {
-            // Manual configuration as before
-            vectorizedConfig = VectorizedPrefilteringEngine.Configuration(
-                optimizationLevel: optimizationLevel,
-                blockSize: 0, // Auto-detect
-                maxConcurrency: threads > 0 ? threads : 0, // Auto-detect if not specified
-                progressCallback: progressCallback,
-                costs: costs
-            )
-        }
-        
-        // Use vectorized prefiltering engine for maximum performance
-        let vectorizedEngine = VectorizedPrefilteringEngine(configuration: vectorizedConfig)
-        let candidates = try await vectorizedEngine.findCandidates(elements: elements, threshold: threshold)
-        
-        let endTime = ProcessInfo.processInfo.systemUptime
-        let totalTime = endTime - startTime
-        
-        // Create performance statistics for compatibility
-        let totalPairs = elements.count * (elements.count - 1) / 2
-        let candidateCount = candidates.count
-        
-        let prefilteringStats = PrefilteringStatistics(
-            totalPossiblePairs: totalPairs,
-            candidatePairs: candidateCount,
-            prefilteringTimeSeconds: totalTime
-        )
-        
-        let performanceStats = PerformanceStatistics(
-            prefilteringStats: prefilteringStats,
-            totalCalculationTime: totalTime,
-            parallelProcessingTime: totalTime,
-            threadsUsed: vectorizedConfig.maxConcurrency > 0 ? vectorizedConfig.maxConcurrency : ProcessInfo.processInfo.processorCount,
-            similarPairsFound: candidates.count,
-            processingRate: Double(candidates.count) / totalTime
-        )
-        
-        return (candidates, performanceStats)
-    }
-    
-    /// Calculates similarity using hierarchical processing pipeline (Phase 11)
-    private func calculateWithHierarchical(
-        elements: [CodeElement],
-        threshold: Double,
-        costs: APTED.OperationCosts,
-        optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
-    ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
-        
-        let startTime = ProcessInfo.processInfo.systemUptime
-        
-        // Determine project scale and configuration
-        let scale = VectorizedPrefilteringEngine.AdaptiveConfiguration.ProjectScale.from(elementCount: elements.count)
-        let hierarchicalConfig = HierarchicalProcessor.Configuration.optimal(for: scale, costs: costs)
-        
-        // Set up progress reporting for hierarchical processing
-        let progressCallback: (@Sendable (HierarchicalProcessor.HierarchicalProgress) -> Void)?
-        if progress {
-            progressCallback = { progressInfo in
-                // Always show progress for all stages
-                guard progressInfo.currentStage > 0 else { return }
-                
-                let completionPercentage = progressInfo.totalElements > 0 ? 
-                    Int((Double(progressInfo.elementsProcessed) / Double(progressInfo.totalElements)) * 100) : 0
-                
-                var progressText = "\rStage \(progressInfo.currentStage): \(progressInfo.stageName) - \(completionPercentage)%"
-                if progressInfo.candidatesFound > 0 {
-                    progressText += " - \(progressInfo.candidatesFound) candidates"
-                }
-                
-                // Use FileHandle for immediate output without buffering
-                if let data = progressText.data(using: .utf8) {
-                    try? FileHandle.standardError.write(contentsOf: data)
-                }
-                
-                if progressInfo.elementsProcessed == progressInfo.totalElements {
-                    try? FileHandle.standardError.write(contentsOf: Data("\n".utf8))
-                }
-            }
-        } else {
-            progressCallback = nil
-        }
-        
-        // Create vectorized engine configuration for hierarchical processor
-        let baseConfig = if optimizationLevel == .auto {
-            VectorizedPrefilteringEngine.AdaptiveConfiguration.optimal(for: elements.count)
-        } else {
-            VectorizedPrefilteringEngine.Configuration(
-                optimizationLevel: optimizationLevel,
-                blockSize: 0,
-                maxConcurrency: threads > 0 ? threads : 0
-            )
-        }
-        let vectorizedConfig = VectorizedPrefilteringEngine.Configuration(
-            optimizationLevel: baseConfig.optimizationLevel,
-            blockSize: baseConfig.blockSize,
-            maxConcurrency: baseConfig.maxConcurrency,
-            costs: costs
-        )
-        
-        // Initialize hierarchical processor
-        let processor = HierarchicalProcessor(
-            configuration: hierarchicalConfig,
-            vectorizedConfig: vectorizedConfig,
-            progressCallback: progressCallback
-        )
-        
-        // Display hierarchical processing info
-        printDiagnostic("   Project scale: \(scale.rawValue)")
-        if hierarchicalConfig.maxCandidatesPerStage > 0 {
-            printDiagnostic("   Max candidates per stage: \(hierarchicalConfig.maxCandidatesPerStage)")
-        }
-        if hierarchicalConfig.enableSampling {
-            printDiagnostic("   Sampling: \(String(format: "%.1f", hierarchicalConfig.samplingRatio * 100))%")
-        }
-        printDiagnostic("")
-        
-        // Process through hierarchical pipeline
-        let (results, stageStatistics) = try await processor.process(elements: elements, threshold: threshold)
-        
-        let endTime = ProcessInfo.processInfo.systemUptime
-        let totalTime = endTime - startTime
-        
-        // Convert results to expected format
-        let similarPairs = results.map { (element1, element2, similarity) in
-            (element1, element2, similarity)
-        }
-        
-        // Calculate aggregate statistics
-        let totalPairs = elements.count * (elements.count - 1) / 2
-        let _ = stageStatistics.first?.inputCandidates ?? totalPairs // totalInputCandidates - unused
-        let finalOutputCandidates = stageStatistics.last?.outputCandidates ?? similarPairs.count
-        
-        let prefilteringStats = PrefilteringStatistics(
-            totalPossiblePairs: totalPairs,
-            candidatePairs: finalOutputCandidates,
-            prefilteringTimeSeconds: totalTime
-        )
-        
-        let performanceStats = PerformanceStatistics(
-            prefilteringStats: prefilteringStats,
-            totalCalculationTime: totalTime,
-            parallelProcessingTime: totalTime,
-            threadsUsed: vectorizedConfig.maxConcurrency > 0 ? vectorizedConfig.maxConcurrency : ProcessInfo.processInfo.processorCount,
-            similarPairsFound: similarPairs.count,
-            processingRate: Double(similarPairs.count) / totalTime
-        )
-        
-        // Display stage statistics if requested
-        if stats {
-            showHierarchicalStatistics(stageStatistics)
-        }
-        
-        return (similarPairs, performanceStats)
-    }
-    
-    /// Shows detailed hierarchical processing statistics
-    private func showHierarchicalStatistics(_ stageStats: [HierarchicalProcessor.StageStatistics]) {
-        printDiagnostic("\n=== Hierarchical Processing Statistics ===")
-        
-        for (_, stat) in stageStats.enumerated() {
-            printDiagnostic("\n--- Stage \(stat.stage): \(stat.name) ---")
-            printDiagnostic("Processing time: \(String(format: "%.3f", stat.processingTime))s")
-            printDiagnostic("Input candidates: \(stat.inputCandidates)")
-            printDiagnostic("Output candidates: \(stat.outputCandidates)")
-            printDiagnostic("Reduction ratio: \(String(format: "%.1f", stat.reductionRatio * 100))%")
-            printDiagnostic("Processing rate: \(String(format: "%.1f", stat.processingRate)) candidates/sec")
-        }
-        
-        // Summary statistics
-        let totalTime = stageStats.reduce(0) { $0 + $1.processingTime }
-        let firstStageInput = stageStats.first?.inputCandidates ?? 0
-        let lastStageOutput = stageStats.last?.outputCandidates ?? 0
-        let overallReduction = firstStageInput > 0 ? Double(firstStageInput - lastStageOutput) / Double(firstStageInput) : 0.0
-        
-        printDiagnostic("\n--- Overall Summary ---")
-        printDiagnostic("Total processing time: \(String(format: "%.3f", totalTime))s")
-        printDiagnostic("Overall reduction: \(String(format: "%.1f", overallReduction * 100))%")
-        printDiagnostic("Stages completed: \(stageStats.count)")
-        printDiagnostic("==========================================\n")
-    }
-
-    /// Shows detailed performance statistics
-    private func showPerformanceStatistics(_ stats: PerformanceStatistics) {
-        printDiagnostic("\n=== Performance Statistics ===")
-        printDiagnostic("Total calculation time: \(String(format: "%.3f", stats.totalCalculationTime))s")
-        printDiagnostic("Parallel processing time: \(String(format: "%.3f", stats.parallelProcessingTime))s")
-        printDiagnostic("Threads used: \(stats.threadsUsed)")
-        printDiagnostic("Processing rate: \(String(format: "%.1f", stats.processingRate)) pairs/sec")
-        printDiagnostic("Similar pairs found: \(stats.similarPairsFound)")
-        
-        let prefiltering = stats.prefilteringStats
-        printDiagnostic("\n--- Prefiltering Results ---")
-        printDiagnostic("Total possible pairs: \(prefiltering.totalPossiblePairs)")
-        printDiagnostic("Candidate pairs: \(prefiltering.candidatePairs)")
-        printDiagnostic("Reduction ratio: \(String(format: "%.1f", prefiltering.reductionRatio * 100))%")
-        printDiagnostic("Prefiltering time: \(String(format: "%.3f", prefiltering.prefilteringTimeSeconds))s")
-        printDiagnostic("Performance improvement: \(String(format: "%.1f", stats.performanceImprovement))x")
-        printDiagnostic("==============================\n")
+        printDiagnostic("\n=== Scan Statistics ===")
+        printDiagnostic("Elements: \(stats.elementCount)")
+        printDiagnostic("Threads: \(stats.workerCount)")
+        printDiagnostic("Total pairs: \(stats.totalPairs)")
+        printDiagnostic("  Nested (skipped): \(stats.nestedPairs) (\(percent(stats.nestedPairs)))")
+        printDiagnostic("  Ruled out by upper bound: \(stats.pairsRuledOutByUpperBound) (\(percent(stats.pairsRuledOutByUpperBound)))")
+        printDiagnostic("  Compared with TSED: \(stats.pairsCompared) (\(percent(stats.pairsCompared)))")
+        printDiagnostic("Similar pairs: \(stats.similarPairs)")
+        printDiagnostic("Fingerprint time: \(String(format: "%.3f", stats.fingerprintTime))s")
+        printDiagnostic("Comparison time: \(String(format: "%.3f", stats.comparisonTime))s")
+        printDiagnostic("Total time: \(String(format: "%.3f", stats.totalTime))s")
+        printDiagnostic("=======================\n")
     }
 }

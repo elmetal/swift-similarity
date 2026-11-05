@@ -113,8 +113,9 @@ result was about the same as keeping 1.0 and lowering the threshold by 0.01–0.
 pairs, lowering `--threshold` has much the same effect.
 
 ### Performance
-`scan` uses every core. `--threads N` limits the number of parallel tasks. `--optimization` is
-deprecated and has no effect.
+`scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many
+pairs were skipped by the exact filters and how long each phase took. `--optimization` and
+`--hierarchical` are deprecated and have no effect.
 
 ### Advanced options
 ```bash
