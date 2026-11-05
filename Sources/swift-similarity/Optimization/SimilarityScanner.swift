@@ -58,6 +58,8 @@ public struct SimilarityScanner: Sendable {
     public let maxConcurrency: Int
     /// Called with progress information, from any thread
     public let progressHandler: (@Sendable (Progress) -> Void)?
+    /// Tree edit operation costs, used for TSED and for both of its exact bounds
+    public let costs: APTED.OperationCosts
 
     /// Number of tasks a scan runs concurrently
     public var workerCount: Int {
@@ -69,9 +71,15 @@ public struct SimilarityScanner: Sendable {
     /// - Parameters:
     ///   - maxConcurrency: Maximum number of concurrent tasks (0 = number of cores)
     ///   - progressHandler: Called with progress information, from any thread
-    public init(maxConcurrency: Int = 0, progressHandler: (@Sendable (Progress) -> Void)? = nil) {
+    ///   - costs: Tree edit operation costs (default: unit costs, as in the TSED paper)
+    public init(
+        maxConcurrency: Int = 0,
+        progressHandler: (@Sendable (Progress) -> Void)? = nil,
+        costs: APTED.OperationCosts = APTED.OperationCosts()
+    ) {
         self.maxConcurrency = maxConcurrency
         self.progressHandler = progressHandler
+        self.costs = costs
     }
 
     // MARK: - Public Interface
@@ -103,8 +111,9 @@ public struct SimilarityScanner: Sendable {
                     guard nextTask < tasks.count else { return }
                     let task = tasks[nextTask]
                     nextTask += 1
+                    let costs = costs
                     group.addTask {
-                        Self.compare(task, order: order, elements: elements, fingerprints: fingerprints, threshold: threshold)
+                        Self.compare(task, order: order, elements: elements, fingerprints: fingerprints, threshold: threshold, costs: costs)
                     }
                 }
                 for _ in 0..<workerCount { submitNext() }
@@ -248,9 +257,10 @@ public struct SimilarityScanner: Sendable {
         order: [Int],
         elements: [CodeElement],
         fingerprints: [ASTNodeFingerprint],
-        threshold: Double
+        threshold: Double,
+        costs: APTED.OperationCosts
     ) -> TaskResult {
-        let calculator = SimilarityCalculator()
+        let calculator = SimilarityCalculator(configuration: .init(aptedCosts: costs))
         var pairs: [IndexedPair] = []
         var counts = PairCounts()
         let first = order[task.row]
@@ -265,7 +275,7 @@ public struct SimilarityScanner: Sendable {
             }
             // Exact prefilter: the TSED upper bound from label histograms. Unlike heuristic
             // filters this never rejects a pair that would match.
-            guard fingerprints[index1].tsedUpperBound(to: fingerprints[index2]) >= threshold else {
+            guard fingerprints[index1].tsedUpperBound(to: fingerprints[index2], costs: costs) >= threshold else {
                 counts.ruledOutByUpperBound += 1
                 continue
             }

@@ -14,7 +14,7 @@ follows the same method, using SwiftSyntax instead of tree-sitter:
 TSED(T1, T2) = max(1 - δ(T1, T2) / MaxNodes(T1, T2), 0)
 ```
 
-- `δ` is the ordered, labeled tree edit distance (insert / delete / rename, unit cost by default).
+- `δ` is the ordered, labeled tree edit distance (insert / delete / rename, unit cost by default; `--rename-cost` changes the rename cost).
 - `MaxNodes` is the node count of the larger tree.
 
 To avoid computing the edit distance for all O(n²) pairs, the tool first rejects pairs with a cheap

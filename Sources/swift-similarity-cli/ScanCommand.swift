@@ -51,6 +51,11 @@ struct ScanCommand: AsyncParsableCommand {
 
     @Flag(inversion: .prefixedNo, help: "Skip declarations preceded by a 'similarity-ignore' comment; --no-ignore-directives compares them too (default: on)")
     var ignoreDirectives: Bool?
+
+    // MARK: - Scoring Options
+
+    @Option(name: .long, help: ArgumentHelp("Cost of renaming a node (changing its label, such as + to - or one syntax kind to another) in the tree edit distance; insertions and deletions cost 1. Lower values make structural variants score higher (default: \(ScanSettings.defaultRenameCost))", valueName: "cost"))
+    var renameCost: Double?
     
     // MARK: - Performance Options
     
@@ -102,6 +107,9 @@ struct ScanCommand: AsyncParsableCommand {
         guard settings.minTokens >= 0 else {
             throw ValidationError("Minimum tokens must be 0 (no limit) or more, got \(settings.minTokens).")
         }
+        guard settings.renameCost >= 0, settings.renameCost.isFinite else {
+            throw ValidationError("Rename cost must be a number 0 or more, got \(settings.renameCost).")
+        }
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
         }
@@ -138,6 +146,7 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Threshold: \(threshold)")
         printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
         printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
+        printDiagnostic("Rename cost: \(settings.renameCost)")
         printDiagnostic("Advanced metrics: \(advanced)")
         printDiagnostic("")
         
@@ -158,7 +167,11 @@ struct ScanCommand: AsyncParsableCommand {
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
             
-            let scanner = SimilarityScanner(maxConcurrency: threads, progressHandler: progress ? Self.printProgress : nil)
+            let scanner = SimilarityScanner(
+                maxConcurrency: threads,
+                progressHandler: progress ? Self.printProgress : nil,
+                costs: settings.operationCosts
+            )
             let result = try await scanner.scan(elements, threshold: threshold)
             let unsortedPairs = result.pairs.map { ($0.first, $0.second, $0.similarity) }
             let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
@@ -178,6 +191,7 @@ struct ScanCommand: AsyncParsableCommand {
                 elementType: elementType,
                 threshold: threshold,
                 advanced: advanced,
+                costs: settings.operationCosts,
                 printCodePreviews: showCode,
                 sortOrder: sortOrder
             )
@@ -231,7 +245,8 @@ struct ScanCommand: AsyncParsableCommand {
             bodyOnly: bodyOnly,
             ignoreDirectives: ignoreDirectives,
             sort: sort,
-            failOnDuplicates: failOnDuplicates
+            failOnDuplicates: failOnDuplicates,
+            renameCost: renameCost
         )
     }
     
@@ -252,6 +267,7 @@ struct ScanCommand: AsyncParsableCommand {
         ignoreDirectives = settings.ignoreDirectives
         sort = settings.sort
         failOnDuplicates = settings.failOnDuplicates
+        renameCost = settings.renameCost
     }
     
     /// Accepted `--element-type` values, for help and error messages.

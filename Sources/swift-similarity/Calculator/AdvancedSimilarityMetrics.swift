@@ -13,9 +13,12 @@ public class AdvancedSimilarityMetrics {
         public let labelWeight: Double
         /// Weight for depth similarity (0.0-1.0).
         public let depthWeight: Double
+        /// Tree edit operation costs for the APTED-based (TSED) score.
+        public let aptedCosts: APTED.OperationCosts
         
         /// Creates advanced metrics configuration.
-        public init(structuralWeight: Double = 0.6, labelWeight: Double = 0.3, depthWeight: Double = 0.1) {
+        public init(structuralWeight: Double = 0.6, labelWeight: Double = 0.3, depthWeight: Double = 0.1, aptedCosts: APTED.OperationCosts = APTED.OperationCosts()) {
+            self.aptedCosts = aptedCosts
             let total = structuralWeight + labelWeight + depthWeight
             self.structuralWeight = structuralWeight / total
             self.labelWeight = labelWeight / total
@@ -55,7 +58,7 @@ public class AdvancedSimilarityMetrics {
     /// Creates an advanced similarity metrics calculator.
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
-        self.basicCalculator = SimilarityCalculator()
+        self.basicCalculator = SimilarityCalculator(configuration: .init(aptedCosts: configuration.aptedCosts))
     }
     
     /// Calculates advanced similarity metrics between two trees.

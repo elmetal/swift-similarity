@@ -77,6 +77,7 @@ body_only = true                       # --body-only / --no-body-only (default f
 ignore_directives = false              # --ignore-directives / --no-ignore-directives (default true)
 sort = "priority"                      # --sort (default "similarity")
 fail_on_duplicates = true              # --fail-on-duplicates / --no-fail-on-duplicates (default false)
+rename_cost = 1.0                      # --rename-cost (default 1.0)
 ```
 
 `no_ignore_directives = true` is accepted as well, as the opposite of `ignore_directives`. Each
@@ -87,6 +88,29 @@ The file supports top-level `key = value` lines, `#` comments, strings, numbers,
 arrays of strings; keys may also be written with `-` (`element-type`). Tables are not supported.
 Unknown keys are ignored with a warning, and a file that cannot be read or parsed is ignored with
 a warning on stderr.
+
+### Scoring
+Similarity is TSED ([arXiv:2404.08817](https://arxiv.org/abs/2404.08817)): the tree edit
+distance between the two syntax trees, divided by the size of the larger tree and subtracted from
+1. Identifiers and literals are labeled by category only, so renaming a variable or changing a
+number costs nothing. Deleting or inserting a syntax node costs 1. Renaming a node, which changes
+its label (for example `+` to `-`, `let` to `var`, or one syntax kind to another), costs `--rename-cost`:
+
+```bash
+# Make changed syntax kinds cheaper, as mizchi/similarity does (its default is 0.3)
+swift run swift-similarity-cli scan Sources/ --rename-cost 0.3
+```
+
+The default, 1.0, follows the TSED paper. A lower cost raises the score of pairs that differ in
+labels but not in shape, so more pairs reach the threshold; a cost of 2 or more makes a rename no
+cheaper than a deletion plus an insertion. The exact pre-filters use the same cost, so pruning
+never drops a pair whatever the cost, but cheaper renames make them weaker and the scan slower.
+
+On this repository, swift-argument-parser and swift-syntax, `--rename-cost 0.3` found 3–11% more
+pairs at threshold 0.8 and dropped none. Almost all of the added pairs were unrelated code with the
+same shape (for example two functions that each return a call with forwarded arguments), and the
+result was about the same as keeping 1.0 and lowering the threshold by 0.01–0.03. To find more
+pairs, lowering `--threshold` has much the same effect.
 
 ### Performance
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many

@@ -78,6 +78,7 @@ func testParseFilteringAndReportingKeys() throws {
     ("body_only = 1", 1),
     ("\nfail_on_duplicates = \"yes\"", 2),
     ("sort = 1", 1),
+    ("rename_cost = \"low\"", 1),
 ])
 func testParseErrors(text: String, line: Int) {
     #expect {
@@ -85,6 +86,22 @@ func testParseErrors(text: String, line: Int) {
     } throws: { error in
         (error as? SimilarityConfig.ParseError)?.line == line
     }
+}
+
+@Test("Reads rename_cost and resolves it into operation costs")
+func testRenameCost() throws {
+    let config = try SimilarityConfig.parse("rename-cost = 0.3\n")
+    #expect(config.renameCost == 0.3)
+
+    let defaults = ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil)
+    #expect(defaults.renameCost == ScanSettings.defaultRenameCost)
+    #expect(defaults.operationCosts == APTED.OperationCosts())
+
+    let fromFile = ScanSettings.resolve(commandLine: SimilarityConfig(), file: config)
+    #expect(fromFile.operationCosts == APTED.OperationCosts(insertion: 1, deletion: 1, substitution: 0.3))
+
+    let fromCLI = ScanSettings.resolve(commandLine: SimilarityConfig(renameCost: 0.5), file: config)
+    #expect(fromCLI.renameCost == 0.5)
 }
 
 // MARK: - Discovery
