@@ -12,6 +12,10 @@ import Foundation
 /// Only elements of the same group are compared: concrete types (struct, class, enum, actor) with
 /// each other, protocols with protocols and extensions with extensions. Comparing a protocol with a
 /// type would mostly find types that conform to it.
+///
+/// With a `ConformanceIndex`, members that satisfy a requirement of a protocol the type conforms
+/// to (protocol witnesses) are left out before comparing, since every conforming type declares
+/// them. A type or extension made only of witnesses has nothing left to compare.
 public struct MemberSimilarityScanner: Sendable {
     /// Elements with fewer members are not compared: one shared member says little about two types.
     public static let defaultMinimumMemberCount = 2
@@ -26,15 +30,21 @@ public struct MemberSimilarityScanner: Sendable {
     /// Finds every pair of `elements` whose member similarity is at least `threshold`, most
     /// similar first, ties in the order of `elements`.
     ///
+    /// - Parameter conformances: When given, protocol witnesses are left out of the members of
+    ///   types and extensions (`ConformanceIndex.membersExcludingWitnesses(of:)`).
+    ///
     /// Elements without members (functions and initializers) or with fewer than
     /// `minimumMemberCount` members, nested pairs and pairs from different groups are skipped.
     /// `statistics.pairsRuledOutByUpperBound` counts the pairs skipped without comparing members:
     /// those from different groups, with too few members, or whose member counts alone rule them out.
-    public func scan(_ elements: [CodeElement], threshold: Double) -> SimilarityScanner.Result {
+    public func scan(_ elements: [CodeElement], threshold: Double, conformances: ConformanceIndex? = nil) -> SimilarityScanner.Result {
         let startTime = ProcessInfo.processInfo.systemUptime
-        let groups = elements.map { element -> Group? in
-            guard let members = element.members, members.count >= minimumMemberCount else { return nil }
-            return Group(element.elementType)
+        let comparedMembers = elements.map { element in
+            conformances.map { $0.membersExcludingWitnesses(of: element) } ?? element.members
+        }
+        let groups = elements.indices.map { index -> Group? in
+            guard let members = comparedMembers[index], members.count >= minimumMemberCount else { return nil }
+            return Group(elements[index].elementType)
         }
 
         struct Row: Sendable {
@@ -56,8 +66,8 @@ public struct MemberSimilarityScanner: Sendable {
                     row.nested += 1
                     continue
                 }
-                let members1 = first.members!
-                let members2 = second.members!
+                let members1 = comparedMembers[i]!
+                let members2 = comparedMembers[j]!
                 guard MemberSimilarity.upperBound(count1: members1.count, count2: members2.count) >= threshold else {
                     row.ruledOut += 1
                     continue
