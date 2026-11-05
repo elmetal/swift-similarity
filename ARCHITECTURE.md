@@ -50,7 +50,6 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 **ScanCommand**
 - Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`), threshold, output format, output file, code previews, thread count, progress, statistics
 - Extracts elements, then runs `SimilarityScanner` (`--compare tree`, the default) or `MemberSimilarityScanner` (`--compare members`)
-- `--optimization` and `--hierarchical` are deprecated no-ops kept for existing scripts; they print a notice on stderr
 - `--advanced` adds structural / label / depth metrics (`AdvancedSimilarityMetrics`) for each reported pair; pairs are still selected by TSED
 
 **OutputFormatter / OutputModels**
@@ -196,7 +195,7 @@ input order, so the output does not depend on which task finishes first.
 Earlier versions had a second, "hierarchical" engine and per-scale configuration (block sizes, thread
 caps, sampling, candidate caps, early termination). Every pair is independent and CPU-bound and the
 filters are exact, so a single pipeline on every core finds the same pairs; that configuration was
-removed, and `--optimization` / `--hierarchical` are accepted but ignored.
+removed together with the `--optimization` and `--hierarchical` options.
 
 ## Data Flow
 
@@ -233,9 +232,14 @@ removed, and `--optimization` / `--hierarchical` are accepted but ignored.
 ## Testing Strategy
 
 `Tests/swift-similarityTests/` mirrors the source layout:
-- AST: parser, extractor and converter (label convention) tests
-- Algorithm: edit distance tests
+- AST: parser, extractor (filters, ignore comments) and converter (label convention) tests
+- Algorithm: edit distance tests, and prepared trees giving the same results as per-pair preparation
 - Calculator: TSED normalization and advanced metrics tests
-- Optimization: fingerprint bounds, vectorized engine (including a brute-force equivalence check), hierarchical processor,
-  adaptive configuration, and `TSEDPipelineTests` (soundness of the TSED upper bound, and that both
-  CLI engines report the exact TSED score)
+- Config: `similarity.toml` parsing and the precedence of command-line options
+- Members: member extraction, member similarity, the conformance index and the member scanner
+- Optimization: fingerprint bounds, `SimilarityScanner` (a brute-force equivalence check, stable
+  order, statistics), exact pruning with a non-default rename cost, nested pairs, and
+  `TSEDPipelineTests` (soundness of the TSED upper bound)
+- Output: ranking, pair filters, grouping and the Xcode / GitHub diagnostic formats
+- Utils: file discovery, exclude patterns
+- `Support/TestSupport.swift`: shared helpers (extraction from source text, seeded random trees)

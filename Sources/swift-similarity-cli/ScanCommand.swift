@@ -71,12 +71,6 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Show pair counts and timings of the scan")
     var stats: Bool = false
     
-    @Option(name: .long, help: ArgumentHelp("Deprecated, has no effect: every scan runs the same pipeline"))
-    var optimization: String?
-    
-    @Flag(name: .long, help: ArgumentHelp("Deprecated, has no effect: every scan runs the same pipeline"))
-    var hierarchical: Bool = false
-    
     // MARK: - Reporting Options
     
     @Option(name: .long, help: "Result order: 'similarity' (score, highest first) or 'priority' (similarity × lines of the smaller declaration, so large duplicates come first; default: \(ScanSettings.defaultSort))")
@@ -159,12 +153,6 @@ struct ScanCommand: AsyncParsableCommand {
         let targetElementTypes = Self.elementTypes(for: elementType, mode: compareMode)!
         let sortOrder = SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased())!
         
-        if optimization != nil {
-            printDiagnostic("Warning: --optimization is deprecated and has no effect; every scan runs the same pipeline")
-        }
-        if hierarchical {
-            printDiagnostic("Warning: --hierarchical is deprecated and has no effect; every scan runs the same pipeline")
-        }
         printDiagnostic("Scanning: \(paths.joined(separator: ", "))")
         if !exclude.isEmpty {
             printDiagnostic("Exclude: \(exclude.joined(separator: ", "))")

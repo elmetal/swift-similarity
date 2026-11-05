@@ -8,7 +8,7 @@ struct SwiftSimilarityCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "swift-similarity",
         abstract: "A Swift code similarity detection tool for finding similar functions, structs, and classes",
-        version: "1.0.0",
+        version: "0.0.1",
         subcommands: [ScanCommand.self],
         defaultSubcommand: ScanCommand.self
     )

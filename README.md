@@ -197,8 +197,7 @@ In `similarity.toml`, set `compare = "members"`.
 
 ### Performance
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many
-pairs were skipped by the exact filters and how long each phase took. `--optimization` and
-`--hierarchical` are deprecated and have no effect.
+pairs were skipped by the exact filters and how long each phase took.
 
 ### Advanced options
 ```bash
