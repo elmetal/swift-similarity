@@ -12,7 +12,18 @@ import Foundation
 /// threshold = 0.85            # --threshold
 /// element_type = "function"   # --element-type
 /// exclude = ["Tests", "**/Generated/**"]  # added to --exclude
+/// min_lines = 5               # --min-lines
+/// min_tokens = 0              # --min-tokens
+/// body_only = false           # --body-only / --no-body-only
+/// ignore_directives = true    # --ignore-directives / --no-ignore-directives
+/// sort = "similarity"         # --sort
+/// fail_on_duplicates = false  # --fail-on-duplicates / --no-fail-on-duplicates
 /// ```
+///
+/// `no_ignore_directives = true`, mirroring the `--no-ignore-directives` flag, is accepted as the
+/// opposite of `ignore_directives`.
+///
+/// The same type holds the options given on the command line, where nil means "not given".
 public struct SimilarityConfig: Equatable, Sendable {
     /// The file name looked up by `find(from:)`.
     public static let fileName = "similarity.toml"
@@ -20,13 +31,35 @@ public struct SimilarityConfig: Equatable, Sendable {
     public var threshold: Double?
     public var elementType: String?
     public var exclude: [String] = []
+    public var minLines: Int?
+    public var minTokens: Int?
+    public var bodyOnly: Bool?
+    public var ignoreDirectives: Bool?
+    public var sort: String?
+    public var failOnDuplicates: Bool?
     /// Keys the file sets that are not supported, for warnings.
     public var unknownKeys: [String] = []
 
-    public init(threshold: Double? = nil, elementType: String? = nil, exclude: [String] = []) {
+    public init(
+        threshold: Double? = nil,
+        elementType: String? = nil,
+        exclude: [String] = [],
+        minLines: Int? = nil,
+        minTokens: Int? = nil,
+        bodyOnly: Bool? = nil,
+        ignoreDirectives: Bool? = nil,
+        sort: String? = nil,
+        failOnDuplicates: Bool? = nil
+    ) {
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
+        self.minLines = minLines
+        self.minTokens = minTokens
+        self.bodyOnly = bodyOnly
+        self.ignoreDirectives = ignoreDirectives
+        self.sort = sort
+        self.failOnDuplicates = failOnDuplicates
     }
 
     /// An error in a config file, with the line it was found on.
@@ -64,6 +97,24 @@ public struct SimilarityConfig: Equatable, Sendable {
         var config = SimilarityConfig()
         var parser = TOMLSubsetParser(text)
         while let (key, value, line) = try parser.nextEntry() {
+            func string() throws -> String {
+                guard case .string(let string) = value else {
+                    throw ParseError(line: line, message: "'\(key)' must be a string")
+                }
+                return string
+            }
+            func bool() throws -> Bool {
+                guard case .bool(let bool) = value else {
+                    throw ParseError(line: line, message: "'\(key)' must be true or false")
+                }
+                return bool
+            }
+            func count() throws -> Int {
+                guard case .number(let number) = value, number >= 0, number == number.rounded(), number <= Double(Int32.max) else {
+                    throw ParseError(line: line, message: "'\(key)' must be a whole number, 0 or more")
+                }
+                return Int(number)
+            }
             switch key.replacingOccurrences(of: "-", with: "_") {
             case "threshold":
                 guard case .number(let number) = value else {
@@ -71,10 +122,21 @@ public struct SimilarityConfig: Equatable, Sendable {
                 }
                 config.threshold = number
             case "element_type":
-                guard case .string(let string) = value else {
-                    throw ParseError(line: line, message: "'\(key)' must be a string")
-                }
-                config.elementType = string
+                config.elementType = try string()
+            case "min_lines":
+                config.minLines = try count()
+            case "min_tokens":
+                config.minTokens = try count()
+            case "body_only":
+                config.bodyOnly = try bool()
+            case "ignore_directives":
+                config.ignoreDirectives = try bool()
+            case "no_ignore_directives":
+                config.ignoreDirectives = try !bool()
+            case "sort":
+                config.sort = try string()
+            case "fail_on_duplicates":
+                config.failOnDuplicates = try bool()
             case "exclude":
                 switch value {
                 case .string(let string):
@@ -98,24 +160,57 @@ public struct SimilarityConfig: Equatable, Sendable {
 public struct ScanSettings: Equatable, Sendable {
     public static let defaultThreshold = 0.8
     public static let defaultElementType = "function"
+    public static let defaultMinLines = 5
+    public static let defaultMinTokens = 0
+    public static let defaultSort = "similarity"
 
     public var threshold: Double
     public var elementType: String
     /// Config file patterns followed by command-line patterns.
     public var exclude: [String]
+    public var minLines: Int
+    public var minTokens: Int
+    public var bodyOnly: Bool
+    public var ignoreDirectives: Bool
+    public var sort: String
+    public var failOnDuplicates: Bool
 
-    /// Combines settings: a command-line value wins over the config file, which wins over the
-    /// default. Exclude patterns from both are used.
-    public static func resolve(
-        threshold: Double?,
-        elementType: String?,
-        exclude: [String],
-        config: SimilarityConfig?
-    ) -> ScanSettings {
-        ScanSettings(
-            threshold: threshold ?? config?.threshold ?? defaultThreshold,
-            elementType: elementType ?? config?.elementType ?? defaultElementType,
-            exclude: (config?.exclude ?? []) + exclude
+    public init(
+        threshold: Double = defaultThreshold,
+        elementType: String = defaultElementType,
+        exclude: [String] = [],
+        minLines: Int = defaultMinLines,
+        minTokens: Int = defaultMinTokens,
+        bodyOnly: Bool = false,
+        ignoreDirectives: Bool = true,
+        sort: String = defaultSort,
+        failOnDuplicates: Bool = false
+    ) {
+        self.threshold = threshold
+        self.elementType = elementType
+        self.exclude = exclude
+        self.minLines = minLines
+        self.minTokens = minTokens
+        self.bodyOnly = bodyOnly
+        self.ignoreDirectives = ignoreDirectives
+        self.sort = sort
+        self.failOnDuplicates = failOnDuplicates
+    }
+
+    /// Combines settings: a value given on the command line wins over the config file, which wins
+    /// over the default. Exclude patterns from both are used.
+    public static func resolve(commandLine: SimilarityConfig, file: SimilarityConfig?) -> ScanSettings {
+        let defaults = ScanSettings()
+        return ScanSettings(
+            threshold: commandLine.threshold ?? file?.threshold ?? defaults.threshold,
+            elementType: commandLine.elementType ?? file?.elementType ?? defaults.elementType,
+            exclude: (file?.exclude ?? []) + commandLine.exclude,
+            minLines: commandLine.minLines ?? file?.minLines ?? defaults.minLines,
+            minTokens: commandLine.minTokens ?? file?.minTokens ?? defaults.minTokens,
+            bodyOnly: commandLine.bodyOnly ?? file?.bodyOnly ?? defaults.bodyOnly,
+            ignoreDirectives: commandLine.ignoreDirectives ?? file?.ignoreDirectives ?? defaults.ignoreDirectives,
+            sort: commandLine.sort ?? file?.sort ?? defaults.sort,
+            failOnDuplicates: commandLine.failOnDuplicates ?? file?.failOnDuplicates ?? defaults.failOnDuplicates
         )
     }
 }

@@ -21,6 +21,28 @@ swift run swift-similarity-cli scan Sources/ --element-type init
 swift run swift-similarity-cli scan Sources/ --element-type all
 ```
 
+### Filtering
+```bash
+# Declarations shorter than 5 lines are skipped by default; change or disable (0) the limit
+swift run swift-similarity-cli scan Sources/ --min-lines 10
+swift run swift-similarity-cli scan Sources/ --min-lines 0
+
+# Skip declarations with fewer than 30 tokens
+swift run swift-similarity-cli scan Sources/ --min-tokens 30
+
+# Compare only bodies (function code blocks, type member blocks), ignoring names,
+# attributes, modifiers, signatures and inheritance clauses
+swift run swift-similarity-cli scan Sources/ --body-only
+```
+
+A comment containing `similarity-ignore` directly before a declaration excludes it (but not the
+declarations nested in it). `--no-ignore-directives` compares them anyway.
+
+```swift
+// similarity-ignore: generated code
+func generatedHelper() { ... }
+```
+
 ### Choosing files
 `scan` takes one or more directories and `.swift` files. Directories are searched recursively;
 hidden files and directories (such as `.build` and `.git`) are skipped. Each file is scanned once,
@@ -49,7 +71,17 @@ Command-line options override the file; `--exclude` patterns are added to the fi
 threshold = 0.85                       # --threshold (default 0.8)
 element_type = "all"                   # --element-type (default "function")
 exclude = ["Tests", "**/Generated/**"] # --exclude
+min_lines = 10                         # --min-lines (default 5)
+min_tokens = 30                        # --min-tokens (default 0)
+body_only = true                       # --body-only / --no-body-only (default false)
+ignore_directives = false              # --ignore-directives / --no-ignore-directives (default true)
+sort = "priority"                      # --sort (default "similarity")
+fail_on_duplicates = true              # --fail-on-duplicates / --no-fail-on-duplicates (default false)
 ```
+
+`no_ignore_directives = true` is accepted as well, as the opposite of `ignore_directives`. Each
+on/off option has a `--no-` form, so the command line can turn off what the file turns on (for
+example `--no-fail-on-duplicates` for a local run).
 
 The file supports top-level `key = value` lines, `#` comments, strings, numbers, booleans and
 arrays of strings; keys may also be written with `-` (`element-type`). Tables are not supported.
@@ -71,6 +103,27 @@ swift run swift-similarity-cli scan Sources/ --print
 # Also report structural, label and depth similarity for each pair
 swift run swift-similarity-cli scan Sources/ --advanced
 ```
+
+### Ranking and CI
+```bash
+# Show the most impactful duplicates first
+swift run swift-similarity-cli scan Sources/ --sort priority
+
+# Exit with code 1 when any similar pair is found (results are still written)
+swift run swift-similarity-cli scan Sources/ --fail-on-duplicates
+```
+
+`--sort similarity` (the default) orders pairs by similarity, highest first. `--sort priority`
+orders them by **priority = similarity × lines**, where lines is the line span of the *smaller*
+of the two declarations: at most that many lines can be duplicated, so a short helper that
+resembles part of a long function is not ranked as if the whole long function were duplicated.
+Ties are broken by similarity, then by the order the pairs were found in, so the output is
+deterministic. Each pair shows its priority (for example `Priority: 8.5 (lines: 10)`), and the
+JSON output has `priority` and `lines` fields plus `summary.sortOrder`.
+
+With `--fail-on-duplicates` the exit code is 1 if at least one pair is found and 0 otherwise.
+The results go to stdout (or `--output`) as usual and diagnostics to stderr; invalid arguments
+exit with code 64.
 
 ## Inspired
 

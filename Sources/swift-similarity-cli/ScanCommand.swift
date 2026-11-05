@@ -37,6 +37,20 @@ struct ScanCommand: AsyncParsableCommand {
     
     @Flag(name: [.customShort("p"), .customLong("print")], help: "Print code previews for similar elements")
     var showCode: Bool = false
+
+    // MARK: - Filtering Options
+
+    @Option(name: [.customShort("m"), .long], help: "Skip declarations shorter than this many lines (0 keeps all; default: \(ScanSettings.defaultMinLines))")
+    var minLines: Int?
+
+    @Option(name: .long, help: "Skip declarations with fewer tokens than this (0 keeps all; with --body-only, only the body's tokens count; default: \(ScanSettings.defaultMinTokens))")
+    var minTokens: Int?
+
+    @Flag(inversion: .prefixedNo, help: "Compare only bodies: code blocks of functions and initializers, member blocks of types (declarations without a body are skipped; default: off)")
+    var bodyOnly: Bool?
+
+    @Flag(inversion: .prefixedNo, help: "Skip declarations preceded by a 'similarity-ignore' comment; --no-ignore-directives compares them too (default: on)")
+    var ignoreDirectives: Bool?
     
     // MARK: - Performance Optimization Options
     
@@ -55,6 +69,14 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Use hierarchical processing pipeline for massive datasets (Phase 11)")
     var hierarchical: Bool = false
     
+    // MARK: - Reporting Options
+    
+    @Option(name: .long, help: "Result order: 'similarity' (score, highest first) or 'priority' (similarity × lines of the smaller declaration, so large duplicates come first; default: \(ScanSettings.defaultSort))")
+    var sort: String?
+    
+    @Flag(inversion: .prefixedNo, help: "Exit with code 1 if any similar pair is found (for CI); results are still written (default: off)")
+    var failOnDuplicates: Bool?
+    
     mutating func validate() throws {
         for path in paths {
             do {
@@ -64,12 +86,12 @@ struct ScanCommand: AsyncParsableCommand {
             }
         }
         applySettings(config: Self.loadConfig())
-        // applySettings filled in threshold and elementType.
-        guard (0.0...1.0).contains(threshold!) else {
-            throw ValidationError("Threshold must be between 0.0 and 1.0, got \(threshold!).")
+        let settings = resolvedSettings
+        guard (0.0...1.0).contains(settings.threshold) else {
+            throw ValidationError("Threshold must be between 0.0 and 1.0, got \(settings.threshold).")
         }
-        guard Self.elementTypes(for: elementType!) != nil else {
-            throw ValidationError("Invalid element type '\(elementType!)'. Valid types: \(Self.elementTypeNames)")
+        guard Self.elementTypes(for: settings.elementType) != nil else {
+            throw ValidationError("Invalid element type '\(settings.elementType)'. Valid types: \(Self.elementTypeNames)")
         }
         guard ["text", "json"].contains(format.lowercased()) else {
             throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
@@ -77,20 +99,34 @@ struct ScanCommand: AsyncParsableCommand {
         guard Self.optimizationLevel(for: optimization) != nil else {
             throw ValidationError("Invalid optimization level '\(optimization)'. Valid levels: conservative, balanced, aggressive, auto")
         }
+        guard settings.minLines >= 0 else {
+            throw ValidationError("Minimum lines must be 0 (no limit) or more, got \(settings.minLines).")
+        }
+        guard settings.minTokens >= 0 else {
+            throw ValidationError("Minimum tokens must be 0 (no limit) or more, got \(settings.minTokens).")
+        }
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
+        }
+        guard SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased()) != nil else {
+            throw ValidationError("Invalid sort order '\(settings.sort)'. Valid orders: \(SimilarityRanking.SortOrder.allCases.map(\.rawValue).joined(separator: ", "))")
         }
     }
     
     mutating func run() async throws {
         // validate() filled in and checked these values.
-        let threshold = threshold!
+        let settings = resolvedSettings
+        let threshold = settings.threshold
+        let minLines = settings.minLines
+        let minTokens = settings.minTokens
+        let bodyOnly = settings.bodyOnly
         // Option values are case-insensitive; normalize them for display and output.
-        let elementType = elementType!.lowercased()
+        let elementType = settings.elementType.lowercased()
         format = format.lowercased()
         
         let targetElementTypes = Self.elementTypes(for: elementType)!
         let optimizationLevel = Self.optimizationLevel(for: optimization)!
+        let sortOrder = SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased())!
         
         printDiagnostic("Scanning: \(paths.joined(separator: ", "))")
         if !exclude.isEmpty {
@@ -98,15 +134,22 @@ struct ScanCommand: AsyncParsableCommand {
         }
         printDiagnostic("Element type: \(elementType)")
         printDiagnostic("Threshold: \(threshold)")
+        printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
+        printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
         printDiagnostic("Advanced metrics: \(advanced)")
         printDiagnostic("Optimization: \(optimization)")
         printDiagnostic("")
         
+        var pairCount = 0
         do {
             // Extract code elements from the given paths
             let extractorConfig = CodeElementExtractor.Configuration(
                 elementTypes: targetElementTypes,
-                maxPreviewLines: 5
+                maxPreviewLines: 5,
+                minLines: minLines,
+                minTokens: minTokens,
+                respectIgnoreDirectives: settings.ignoreDirectives,
+                compareBodyOnly: bodyOnly
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
             let elements = try extractor.extractElements(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
@@ -115,7 +158,7 @@ struct ScanCommand: AsyncParsableCommand {
             printDiagnostic("Found \(elements.count) \(elementDescription)")
             
             // Calculate similarity using selected processing method
-            let (similarPairs, performanceStats): ([(CodeElement, CodeElement, Double)], PerformanceStatistics?) = if elements.count < 2 {
+            let (unsortedPairs, performanceStats): ([(CodeElement, CodeElement, Double)], PerformanceStatistics?) = if elements.count < 2 {
                 // Still write the (empty) result so JSON consumers always get a document.
                 ([], nil)
             } else if hierarchical {
@@ -131,6 +174,7 @@ struct ScanCommand: AsyncParsableCommand {
                     optimizationLevel: optimizationLevel
                 )
             }
+            let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
             
             printDiagnostic("Found \(similarPairs.count) similar pairs")
             
@@ -149,7 +193,8 @@ struct ScanCommand: AsyncParsableCommand {
                 elementType: elementType,
                 threshold: threshold,
                 advanced: advanced,
-                printCodePreviews: showCode
+                printCodePreviews: showCode,
+                sortOrder: sortOrder
             )
             
             if format == "json" {
@@ -158,8 +203,15 @@ struct ScanCommand: AsyncParsableCommand {
                 try formatter.outputText(similarPairs: similarPairs, to: output)
             }
             
+            pairCount = similarPairs.count
         } catch {
             printDiagnostic("Error: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+        
+        // Checked after the results are written, outside the do/catch so it is not reported as an error.
+        if settings.failOnDuplicates && pairCount > 0 {
+            printDiagnostic("Exiting with code 1: \(pairCount) similar pairs found (--fail-on-duplicates)")
             throw ExitCode.failure
         }
     }
@@ -183,17 +235,38 @@ struct ScanCommand: AsyncParsableCommand {
         }
     }
     
-    /// Fills in options not given on the command line from the config file and defaults.
-    private mutating func applySettings(config: SimilarityConfig?) {
-        let settings = ScanSettings.resolve(
+    /// The options given on the command line; nil for those that were not.
+    private var commandLineSettings: SimilarityConfig {
+        SimilarityConfig(
             threshold: threshold,
             elementType: elementType,
             exclude: exclude,
-            config: config
+            minLines: minLines,
+            minTokens: minTokens,
+            bodyOnly: bodyOnly,
+            ignoreDirectives: ignoreDirectives,
+            sort: sort,
+            failOnDuplicates: failOnDuplicates
         )
+    }
+    
+    /// Every option, after applySettings filled in those not given on the command line.
+    private var resolvedSettings: ScanSettings {
+        ScanSettings.resolve(commandLine: commandLineSettings, file: nil)
+    }
+    
+    /// Fills in options not given on the command line from the config file and defaults.
+    private mutating func applySettings(config: SimilarityConfig?) {
+        let settings = ScanSettings.resolve(commandLine: commandLineSettings, file: config)
         threshold = settings.threshold
         elementType = settings.elementType
         exclude = settings.exclude
+        minLines = settings.minLines
+        minTokens = settings.minTokens
+        bodyOnly = settings.bodyOnly
+        ignoreDirectives = settings.ignoreDirectives
+        sort = settings.sort
+        failOnDuplicates = settings.failOnDuplicates
     }
     
     /// Accepted `--element-type` values, for help and error messages.

@@ -82,16 +82,45 @@ public class CodeElementExtractor {
         public let elementTypes: Set<CodeElementType>
         /// Maximum lines for code preview
         public let maxPreviewLines: Int
-        
+        /// Declarations spanning fewer source lines are skipped (0 keeps all).
+        public let minLines: Int
+        /// Declarations whose compared syntax has fewer tokens are skipped (0 keeps all).
+        /// With `compareBodyOnly`, only the body's tokens are counted.
+        public let minTokens: Int
+        /// Skip declarations preceded by a comment containing `similarity-ignore`.
+        public let respectIgnoreDirectives: Bool
+        /// Compare only the body: the code block of functions and initializers, the member block
+        /// of types and extensions. Names, attributes, modifiers, signatures and inheritance
+        /// clauses are left out. Declarations without a body (protocol requirements) are skipped.
+        public let compareBodyOnly: Bool
+
         /// Creates extraction configuration
         /// - Parameters:
         ///   - elementTypes: Types to extract (default: all)
         ///   - maxPreviewLines: Max preview lines (default: 5)
-        public init(elementTypes: Set<CodeElementType> = Set(CodeElementType.allCases), maxPreviewLines: Int = 5) {
+        ///   - minLines: Minimum declaration length in lines (default: 0, no limit)
+        ///   - minTokens: Minimum number of tokens (default: 0, no limit)
+        ///   - respectIgnoreDirectives: Honor `similarity-ignore` comments (default: true)
+        ///   - compareBodyOnly: Compare bodies only (default: false)
+        public init(
+            elementTypes: Set<CodeElementType> = Set(CodeElementType.allCases),
+            maxPreviewLines: Int = 5,
+            minLines: Int = 0,
+            minTokens: Int = 0,
+            respectIgnoreDirectives: Bool = true,
+            compareBodyOnly: Bool = false
+        ) {
             self.elementTypes = elementTypes
             self.maxPreviewLines = maxPreviewLines
+            self.minLines = minLines
+            self.minTokens = minTokens
+            self.respectIgnoreDirectives = respectIgnoreDirectives
+            self.compareBodyOnly = compareBodyOnly
         }
     }
+
+    /// The comment marker that excludes the declaration following it.
+    public static let ignoreDirective = "similarity-ignore"
     
     /// Configuration for this extractor
     public let configuration: Configuration
@@ -219,18 +248,38 @@ private class CodeElementVisitor: SyntaxVisitor {
     private func createCodeElement(from node: some DeclSyntaxProtocol, type: CodeElementType) -> CodeElement? {
         // Get name
         guard let name = extractName(from: node) else { return nil }
-        
-        // Create signature (simplified - just the node description)
-        let signature = node.description.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
+        if configuration.respectIgnoreDirectives && hasIgnoreDirective(node) {
+            return nil
+        }
+
+        // The syntax that is compared: the whole declaration, or only its body
+        let compared: Syntax
+        if configuration.compareBodyOnly {
+            guard let body = body(of: node) else { return nil }
+            compared = body
+        } else {
+            compared = Syntax(node)
+        }
+
         // Calculate actual line numbers
         let (startLine, endLine) = calculateLineNumbers(for: node)
-        
+
+        if endLine - startLine + 1 < configuration.minLines {
+            return nil
+        }
+        if configuration.minTokens > 0 && !hasTokens(compared, atLeast: configuration.minTokens) {
+            return nil
+        }
+
+        // Create signature (simplified - just the node description)
+        let signature = node.description.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // Create code preview from actual source lines
         let codePreview = extractCodePreview(startLine: startLine, endLine: endLine)
-        
+
         // Create tree node for similarity calculation
-        let treeNode = ASTToTreeConverter.convertSyntaxNode(node)
+        let treeNode = ASTToTreeConverter.convertSyntaxNode(compared)
         
         return CodeElement(
             elementType: type,
@@ -245,6 +294,44 @@ private class CodeElementVisitor: SyntaxVisitor {
         )
     }
     
+    /// Whether a comment directly before the declaration (in its leading trivia, which also covers
+    /// comments above its attributes) contains `similarity-ignore`. Only this declaration is
+    /// skipped; declarations nested in it are still extracted.
+    private func hasIgnoreDirective(_ node: some DeclSyntaxProtocol) -> Bool {
+        node.leadingTrivia.contains { piece in
+            switch piece {
+            case .lineComment(let text), .blockComment(let text),
+                 .docLineComment(let text), .docBlockComment(let text):
+                return text.contains(CodeElementExtractor.ignoreDirective)
+            default:
+                return false
+            }
+        }
+    }
+
+    /// Whether `node` has at least `minimum` tokens; stops counting once the minimum is reached.
+    private func hasTokens(_ node: Syntax, atLeast minimum: Int) -> Bool {
+        var count = 0
+        for _ in node.tokens(viewMode: .sourceAccurate) {
+            count += 1
+            if count >= minimum { return true }
+        }
+        return false
+    }
+
+    /// The body compared with `compareBodyOnly`, or nil if the declaration has none.
+    private func body(of node: some DeclSyntaxProtocol) -> Syntax? {
+        let decl = Syntax(node)
+        if let funcDecl = decl.as(FunctionDeclSyntax.self) {
+            return funcDecl.body.map(Syntax.init)
+        } else if let initDecl = decl.as(InitializerDeclSyntax.self) {
+            return initDecl.body.map(Syntax.init)
+        } else if let group = decl.asProtocol(DeclGroupSyntax.self) {
+            return Syntax(group.memberBlock)
+        }
+        return nil
+    }
+
     // Extract name from declaration
     private func extractName(from node: some DeclSyntaxProtocol) -> String? {
         let decl = Syntax(node)

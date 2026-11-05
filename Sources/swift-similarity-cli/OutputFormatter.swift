@@ -9,6 +9,7 @@ struct OutputFormatter {
     let threshold: Double
     let advanced: Bool
     let printCodePreviews: Bool
+    let sortOrder: SimilarityRanking.SortOrder
     
     /// Computes the additional metrics for a pair when `--advanced` is set.
     /// They are reported alongside the TSED score and do not affect which pairs are found.
@@ -42,11 +43,14 @@ struct OutputFormatter {
                 totalPairs: similarPairs.count,
                 elementType: elementType,
                 threshold: threshold,
-                advancedMetrics: advanced
+                advancedMetrics: advanced,
+                sortOrder: sortOrder.rawValue
             ),
             similarPairs: similarPairs.map { pair in
                 SimilarPair(
                     similarity: pair.2 * 100,
+                    priority: SimilarityRanking.priority(of: pair),
+                    lines: SimilarityRanking.lines(of: pair),
                     elementType: pair.0.elementType.rawValue,
                     elementName1: pair.0.name,
                     elementName2: pair.1.name,
@@ -92,7 +96,11 @@ struct OutputFormatter {
         if similarPairs.isEmpty {
             output += "No similar \(elementType) elements found.\n"
         } else {
-            output += "Similar Pairs (sorted by similarity):\n"
+            let orderDescription = switch sortOrder {
+            case .similarity: "similarity"
+            case .priority: "priority = similarity × lines of the smaller declaration"
+            }
+            output += "Similar Pairs (sorted by \(orderDescription)):\n"
             output += String(repeating: "=", count: 60) + "\n"
             
             for (index, pair) in similarPairs.enumerated() {
@@ -103,6 +111,7 @@ struct OutputFormatter {
                     ? "\(type1): \(pair.0.name) / \(pair.1.name)"
                     : "\(type1): \(pair.0.name) / \(type2): \(pair.1.name)"
                 output += "\(index + 1). Similarity: \(String(format: "%.2f%%", pair.2 * 100)) - \(names)\n"
+                output += "   Priority: \(String(format: "%.1f", SimilarityRanking.priority(of: pair))) (lines: \(SimilarityRanking.lines(of: pair)))\n"
                 output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
                 output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
                 

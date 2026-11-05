@@ -31,9 +31,34 @@ func testParseVariants() throws {
 
 @Test("Collects unknown keys instead of failing")
 func testParseUnknownKeys() throws {
-    let config = try SimilarityConfig.parse("min_lines = 3\nthreshold = 0.7\nbody_only = true\n")
+    let config = try SimilarityConfig.parse("min_size = 3\nthreshold = 0.7\nverbose = true\n")
     #expect(config.threshold == 0.7)
-    #expect(config.unknownKeys == ["min_lines", "body_only"])
+    #expect(config.unknownKeys == ["min_size", "verbose"])
+}
+
+@Test("Parses the filtering and reporting keys")
+func testParseFilteringAndReportingKeys() throws {
+    let config = try SimilarityConfig.parse("""
+        min_lines = 10
+        min-tokens = 30
+        body_only = true
+        ignore_directives = false
+        sort = "priority"
+        fail-on-duplicates = true
+        """)
+    #expect(config == SimilarityConfig(
+        minLines: 10,
+        minTokens: 30,
+        bodyOnly: true,
+        ignoreDirectives: false,
+        sort: "priority",
+        failOnDuplicates: true
+    ))
+    #expect(config.unknownKeys.isEmpty)
+    
+    // The key mirroring the --no-ignore-directives flag is the opposite of ignore_directives.
+    #expect(try SimilarityConfig.parse("no_ignore_directives = true").ignoreDirectives == false)
+    #expect(try SimilarityConfig.parse("no-ignore-directives = false").ignoreDirectives == true)
 }
 
 @Test("Reports malformed files and wrong value types with a line number", arguments: [
@@ -47,6 +72,12 @@ func testParseUnknownKeys() throws {
     ("\n\n[swift]\nthreshold = 0.8", 3),
     ("a.b = 1", 1),
     ("threshold =", 1),
+    ("min_lines = -1", 1),
+    ("min_tokens = 2.5", 1),
+    ("min_lines = \"5\"", 1),
+    ("body_only = 1", 1),
+    ("\nfail_on_duplicates = \"yes\"", 2),
+    ("sort = 1", 1),
 ])
 func testParseErrors(text: String, line: Int) {
     #expect {
@@ -81,18 +112,56 @@ func testFindWalksUp() throws {
 
 @Test("Command-line values override the config file, which overrides the defaults")
 func testSettingsPrecedence() {
-    let config = SimilarityConfig(threshold: 0.6, elementType: "struct", exclude: ["Tests"])
-
-    let defaults = ScanSettings.resolve(threshold: nil, elementType: nil, exclude: [], config: nil)
-    #expect(defaults == ScanSettings(threshold: ScanSettings.defaultThreshold, elementType: ScanSettings.defaultElementType, exclude: []))
-
-    let fromConfig = ScanSettings.resolve(threshold: nil, elementType: nil, exclude: [], config: config)
-    #expect(fromConfig == ScanSettings(threshold: 0.6, elementType: "struct", exclude: ["Tests"]))
-
-    let fromCLI = ScanSettings.resolve(threshold: 0.9, elementType: "all", exclude: ["*.pb.swift"], config: config)
+    let file = SimilarityConfig(threshold: 0.6, elementType: "struct", exclude: ["Tests"])
+    
+    let defaults = ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil)
+    #expect(defaults == ScanSettings())
+    #expect(defaults.threshold == 0.8 && defaults.elementType == "function" && defaults.minLines == 5)
+    #expect(defaults.ignoreDirectives && !defaults.bodyOnly && !defaults.failOnDuplicates && defaults.sort == "similarity")
+    
+    let fromFile = ScanSettings.resolve(commandLine: SimilarityConfig(), file: file)
+    #expect(fromFile == ScanSettings(threshold: 0.6, elementType: "struct", exclude: ["Tests"]))
+    
+    let commandLine = SimilarityConfig(threshold: 0.9, elementType: "all", exclude: ["*.pb.swift"])
+    let fromCLI = ScanSettings.resolve(commandLine: commandLine, file: file)
     #expect(fromCLI == ScanSettings(threshold: 0.9, elementType: "all", exclude: ["Tests", "*.pb.swift"]))
-
+    
     // A config file that sets only some keys leaves the rest at their defaults.
-    let partial = ScanSettings.resolve(threshold: nil, elementType: nil, exclude: [], config: SimilarityConfig(threshold: 0.7))
-    #expect(partial == ScanSettings(threshold: 0.7, elementType: ScanSettings.defaultElementType, exclude: []))
+    let partial = ScanSettings.resolve(commandLine: SimilarityConfig(), file: SimilarityConfig(threshold: 0.7))
+    #expect(partial == ScanSettings(threshold: 0.7))
+}
+
+@Test("Filtering and reporting options follow the same precedence, including turning flags off")
+func testFilteringAndReportingPrecedence() {
+    let file = SimilarityConfig(
+        minLines: 10,
+        minTokens: 30,
+        bodyOnly: true,
+        ignoreDirectives: false,
+        sort: "priority",
+        failOnDuplicates: true
+    )
+    
+    let fromFile = ScanSettings.resolve(commandLine: SimilarityConfig(), file: file)
+    #expect(fromFile == ScanSettings(
+        minLines: 10, minTokens: 30, bodyOnly: true, ignoreDirectives: false, sort: "priority", failOnDuplicates: true
+    ))
+    
+    // --min-lines 0 --min-tokens 0 --no-body-only --ignore-directives --sort similarity --no-fail-on-duplicates
+    let commandLine = SimilarityConfig(
+        minLines: 0,
+        minTokens: 0,
+        bodyOnly: false,
+        ignoreDirectives: true,
+        sort: "similarity",
+        failOnDuplicates: false
+    )
+    let fromCLI = ScanSettings.resolve(commandLine: commandLine, file: file)
+    #expect(fromCLI == ScanSettings(minLines: 0, minTokens: 0))
+    
+    // Options not given on the command line still come from the file.
+    let mixed = ScanSettings.resolve(commandLine: SimilarityConfig(minLines: 3, failOnDuplicates: false), file: file)
+    #expect(mixed == ScanSettings(
+        minLines: 3, minTokens: 30, bodyOnly: true, ignoreDirectives: false, sort: "priority", failOnDuplicates: false
+    ))
 }
