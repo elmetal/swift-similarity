@@ -177,6 +177,7 @@ extension PreparedTree {
     }
 
     /// Same as `ASTNodeFingerprint.tsedUpperBound(to:costs:)`, from the interned histograms.
+    // similarity-ignore: the same bound for another representation; both call the shared formula
     public func tsedUpperBound(to other: PreparedTree, costs: APTED.OperationCosts = APTED.OperationCosts()) -> Double {
         ASTNodeFingerprint.tsedUpperBound(
             distanceLowerBound: treeEditDistanceLowerBound(to: other, costs: costs),

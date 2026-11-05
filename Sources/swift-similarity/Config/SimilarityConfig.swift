@@ -115,6 +115,7 @@ public struct SimilarityConfig: Equatable, Sendable {
                 }
                 return string
             }
+            // similarity-ignore: one type check per TOML value kind, like string()
             func bool() throws -> Bool {
                 guard case .bool(let bool) = value else {
                     throw ParseError(line: line, message: "'\(key)' must be true or false")

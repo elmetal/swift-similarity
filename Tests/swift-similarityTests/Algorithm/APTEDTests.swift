@@ -186,29 +186,6 @@ private struct ReferenceTreeEditDistance {
 }
 
 /// Deterministic pseudo-random generator so failures are reproducible.
-private struct SplitMix64: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9e3779b97f4a7c15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
-        z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
-        return z ^ (z >> 31)
-    }
-}
-
-private func randomTree(size: Int, labels: [String], rng: inout SplitMix64) -> TreeNode {
-    let label = labels.randomElement(using: &rng)!
-    var remaining = size - 1
-    var children: [TreeNode] = []
-    while remaining > 0 {
-        let childSize = Int.random(in: 1...remaining, using: &rng)
-        children.append(randomTree(size: childSize, labels: labels, rng: &rng))
-        remaining -= childSize
-    }
-    return SimpleTreeNode(label: label, children: children)
-}
-
 @Test("Matches the recursive definition on random trees", arguments: [
     APTED.OperationCosts(),
     APTED.OperationCosts(insertion: 0.8, deletion: 1.0, substitution: 1.0),
@@ -218,13 +195,13 @@ private func randomTree(size: Int, labels: [String], rng: inout SplitMix64) -> T
     APTED.OperationCosts(insertion: 1.0, deletion: 1.0, substitution: 0.0),
 ])
 func testMatchesReferenceImplementation(costs: APTED.OperationCosts) {
-    var rng = SplitMix64(state: 42)
+    var rng = SplitMix64(seed: 42)
     let labels = ["a", "b", "c"]
     let apted = APTED(costs: costs)
     
     for _ in 0..<200 {
-        let tree1 = randomTree(size: Int.random(in: 1...7, using: &rng), labels: labels, rng: &rng)
-        let tree2 = randomTree(size: Int.random(in: 1...7, using: &rng), labels: labels, rng: &rng)
+        let tree1 = randomTree(size: Int.random(in: 1...7, using: &rng), labels: labels, using: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...7, using: &rng), labels: labels, using: &rng)
         var reference = ReferenceTreeEditDistance(costs: costs)
         let expected = reference.distance([tree1], [tree2])
         let actual = apted.editDistance(between: tree1, and: tree2)
@@ -240,11 +217,11 @@ func testMirrorInvariance(costs: APTED.OperationCosts) {
     func mirror(_ tree: TreeNode) -> TreeNode {
         SimpleTreeNode(label: tree.label, children: tree.children.reversed().map(mirror))
     }
-    var rng = SplitMix64(state: 99)
+    var rng = SplitMix64(seed: 99)
     let apted = APTED(costs: costs)
     for _ in 0..<200 {
-        let tree1 = randomTree(size: Int.random(in: 1...10, using: &rng), labels: ["a", "b", "c"], rng: &rng)
-        let tree2 = randomTree(size: Int.random(in: 1...10, using: &rng), labels: ["a", "b", "c"], rng: &rng)
+        let tree1 = randomTree(size: Int.random(in: 1...10, using: &rng), labels: ["a", "b", "c"], using: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...10, using: &rng), labels: ["a", "b", "c"], using: &rng)
         let distance = apted.editDistance(between: tree1, and: tree2)
         #expect(abs(apted.editDistance(between: mirror(tree1), and: mirror(tree2)) - distance) < 1e-9)
     }
@@ -256,18 +233,18 @@ func testMirrorInvariance(costs: APTED.OperationCosts) {
     APTED.OperationCosts(insertion: 1.0, deletion: 2.0, substitution: 3.0),
 ])
 func testSequenceLowerBound(costs: APTED.OperationCosts) {
-    var rng = SplitMix64(state: 123)
+    var rng = SplitMix64(seed: 123)
     let apted = APTED(costs: costs)
     for _ in 0..<300 {
-        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
-        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
         #expect(apted.lowerBound(between: tree1, and: tree2) <= apted.editDistance(between: tree1, and: tree2) + 1e-9)
     }
     
     // The early exit must also stay a valid bound.
     for _ in 0..<300 {
-        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
-        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
         let limit = Double(Int.random(in: 0...6, using: &rng))
         #expect(apted.lowerBound(between: tree1, and: tree2, exceeding: limit) <= apted.editDistance(between: tree1, and: tree2) + 1e-9)
     }

@@ -164,10 +164,7 @@ func testScannerStableOrder() async throws {
     struct S { let a: Int; let b: Int }
     struct T { let c: Int; let d: Int }
     """
-    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("StableOrder_\(UUID().uuidString).swift")
-    try source.write(to: url, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: url) }
-    let elements = try CodeElementExtractor().extractElements(from: url.path)
+    let elements = try extractElements(from: source)
     
     func describe(_ results: [SimilarityScanner.Pair]) -> [String] {
         results.map { "\($0.0.name)-\($0.1.name)-\($0.2)" }

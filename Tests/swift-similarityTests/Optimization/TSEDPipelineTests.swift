@@ -17,28 +17,6 @@ private func fingerprint(of tree: TreeNode) -> ASTNodeFingerprint {
     return ASTNodeFingerprint(nodeTypeCounts: counts, totalNodes: total, maxDepth: 0, leafNodeCount: 0)
 }
 
-private struct SeededGenerator: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9e3779b97f4a7c15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
-        z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
-        return z ^ (z >> 31)
-    }
-}
-
-private func randomTree(size: Int, labels: [String], rng: inout SeededGenerator) -> TreeNode {
-    var remaining = size - 1
-    var children: [TreeNode] = []
-    while remaining > 0 {
-        let childSize = Int.random(in: 1...remaining, using: &rng)
-        children.append(randomTree(size: childSize, labels: labels, rng: &rng))
-        remaining -= childSize
-    }
-    return SimpleTreeNode(label: labels.randomElement(using: &rng)!, children: children)
-}
-
 private func element(_ source: String, name: String) -> CodeElement {
     let file = SwiftASTParser.parseSource(source)
     let function = file.statements.first!.item.as(FunctionDeclSyntax.self)!
@@ -69,11 +47,11 @@ private let sources = [
     APTED.OperationCosts(insertion: 1.0, deletion: 2.0, substitution: 3.0),
 ])
 func testUpperBoundIsSound(costs: APTED.OperationCosts) {
-    var rng = SeededGenerator(state: 7)
+    var rng = SplitMix64(seed: 7)
     let calculator = SimilarityCalculator(configuration: .init(aptedCosts: costs))
     for _ in 0..<300 {
-        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
-        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], rng: &rng)
+        let tree1 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
+        let tree2 = randomTree(size: Int.random(in: 1...12, using: &rng), labels: ["a", "b", "c", "d"], using: &rng)
         let tsed = calculator.calculateSimilarity(between: tree1, and: tree2).similarityScore
         let bound = fingerprint(of: tree1).tsedUpperBound(to: fingerprint(of: tree2), costs: costs)
         #expect(bound >= tsed - 1e-9)

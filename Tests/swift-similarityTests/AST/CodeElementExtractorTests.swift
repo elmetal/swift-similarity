@@ -94,19 +94,8 @@ class TestClass {
 }
 """
 
-// Helper function to create test elements with unique temp file
 private func createTestElements() throws -> [CodeElement] {
-    let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("LineNumberTestFile_\(UUID().uuidString).swift")
-    
-    try testSwiftCode.write(to: tempURL, atomically: true, encoding: .utf8)
-    
-    defer {
-        try? FileManager.default.removeItem(at: tempURL)
-    }
-    
-    let extractor = CodeElementExtractor()
-    return try extractor.extractElements(from: tempURL.path)
+    try extractElements(from: testSwiftCode)
 }
 
 @Test("Struct element line number validation")
@@ -189,17 +178,7 @@ func testCodePreviewAccuracy() throws {
     }
     """
     
-    let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("SimpleTest.swift")
-    
-    try swiftCode.write(to: tempURL, atomically: true, encoding: .utf8)
-    
-    defer {
-        try? FileManager.default.removeItem(at: tempURL)
-    }
-    
-    let extractor = CodeElementExtractor()
-    let elements = try extractor.extractElements(from: tempURL.path)
+    let elements = try extractElements(from: swiftCode)
     
     let structElement = elements.first { $0.elementType == CodeElementType.struct }
     #expect(structElement != nil)
@@ -221,12 +200,7 @@ func testLineNumbersWithMultiByteCharacters() throws {
     }
     """
     
-    let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("MultiByteLineTest-\(UUID().uuidString).swift")
-    try swiftCode.write(to: tempURL, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: tempURL) }
-    
-    let elements = try CodeElementExtractor().extractElements(from: tempURL.path)
+    let elements = try extractElements(from: swiftCode)
     
     let first = elements.first { $0.name == "First" }
     #expect(first?.startLine == 3)
@@ -256,12 +230,7 @@ func testAdditionalElementTypes() throws {
         func total() -> Int { reduce(0, +) }
     }
     """
-    let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("ElementTypes_\(UUID().uuidString).swift")
-    try source.write(to: url, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: url) }
-    
-    let elements = try CodeElementExtractor().extractElements(from: url.path)
+    let elements = try extractElements(from: source)
     let found = Set(elements.map { "\($0.elementType.rawValue) \($0.name)" })
     
     #expect(found.contains("protocol Greeter"))
@@ -273,7 +242,7 @@ func testAdditionalElementTypes() throws {
     // A protocol requirement has no body but is still a function declaration.
     #expect(found.contains("function greet"))
     
-    let initOnly = try CodeElementExtractor(configuration: .init(elementTypes: [.initializer])).extractElements(from: url.path)
+    let initOnly = try extractElements(from: source, configuration: .init(elementTypes: [.initializer]))
     #expect(initOnly.count == 2)
     #expect(initOnly.allSatisfy { $0.elementType == .initializer })
 }

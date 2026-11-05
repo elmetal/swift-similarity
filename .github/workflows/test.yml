@@ -29,3 +29,8 @@ jobs:
 
       - name: Test
         run: swift test --skip-build
+
+      # Scan this package with its own command plugin. Similar declarations are annotated on the
+      # pull request; mark intentional ones with `// similarity-ignore: <reason>`.
+      - name: Check for similar code
+        run: swift package similarity --format github

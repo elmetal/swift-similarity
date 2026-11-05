@@ -12,11 +12,7 @@ private func members(_ source: String) throws -> [TypeMember] {
 }
 
 private func extract(_ source: String) throws -> [CodeElement] {
-    let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("TypeMembers-\(UUID().uuidString).swift")
-    try source.write(to: url, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: url) }
-    return try CodeElementExtractor(configuration: .init(minLines: 0)).extractElements(from: url.path)
+    try extractElements(from: source, configuration: .init(minLines: 0))
 }
 
 // MARK: - Extraction
