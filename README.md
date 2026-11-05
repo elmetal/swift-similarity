@@ -21,6 +21,28 @@ swift run swift-similarity-cli scan Sources/ --element-type init
 swift run swift-similarity-cli scan Sources/ --element-type all
 ```
 
+### Filtering
+```bash
+# Declarations shorter than 5 lines are skipped by default; change or disable (0) the limit
+swift run swift-similarity-cli scan Sources/ --min-lines 10
+swift run swift-similarity-cli scan Sources/ --min-lines 0
+
+# Skip declarations with fewer than 30 tokens
+swift run swift-similarity-cli scan Sources/ --min-tokens 30
+
+# Compare only bodies (function code blocks, type member blocks), ignoring names,
+# attributes, modifiers, signatures and inheritance clauses
+swift run swift-similarity-cli scan Sources/ --body-only
+```
+
+A comment containing `similarity-ignore` directly before a declaration excludes it (but not the
+declarations nested in it). `--no-ignore-directives` compares them anyway.
+
+```swift
+// similarity-ignore: generated code
+func generatedHelper() { ... }
+```
+
 ### Performance
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--optimization` is
 deprecated and has no effect.
