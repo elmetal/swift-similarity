@@ -210,8 +210,6 @@ struct ScanCommand: AsyncParsableCommand {
                     optimizationLevel: adaptiveConfig.optimizationLevel,
                     blockSize: adaptiveConfig.blockSize,
                     maxConcurrency: threads,
-                    hashMatrixCacheSize: adaptiveConfig.hashMatrixCacheSize,
-                    enableSIMD: adaptiveConfig.enableSIMD,
                     progressCallback: progressCallback
                 )
             } else {
@@ -219,8 +217,6 @@ struct ScanCommand: AsyncParsableCommand {
                     optimizationLevel: adaptiveConfig.optimizationLevel,
                     blockSize: adaptiveConfig.blockSize,
                     maxConcurrency: adaptiveConfig.maxConcurrency,
-                    hashMatrixCacheSize: adaptiveConfig.hashMatrixCacheSize,
-                    enableSIMD: adaptiveConfig.enableSIMD,
                     progressCallback: progressCallback
                 )
             }
@@ -236,8 +232,6 @@ struct ScanCommand: AsyncParsableCommand {
                 optimizationLevel: optimizationLevel,
                 blockSize: 0, // Auto-detect
                 maxConcurrency: threads > 0 ? threads : 0, // Auto-detect if not specified
-                hashMatrixCacheSize: 10000,
-                enableSIMD: true,
                 progressCallback: progressCallback
             )
         }
@@ -256,8 +250,7 @@ struct ScanCommand: AsyncParsableCommand {
         let prefilteringStats = PrefilteringStatistics(
             totalPossiblePairs: totalPairs,
             candidatePairs: candidateCount,
-            prefilteringTimeSeconds: totalTime,
-            bloomFilterStats: nil
+            prefilteringTimeSeconds: totalTime
         )
         
         let performanceStats = PerformanceStatistics(
@@ -265,7 +258,6 @@ struct ScanCommand: AsyncParsableCommand {
             totalCalculationTime: totalTime,
             parallelProcessingTime: totalTime,
             threadsUsed: vectorizedConfig.maxConcurrency > 0 ? vectorizedConfig.maxConcurrency : ProcessInfo.processInfo.processorCount,
-            peakMemoryUsage: nil,
             similarPairsFound: candidates.count,
             processingRate: Double(candidates.count) / totalTime
         )
@@ -361,8 +353,7 @@ struct ScanCommand: AsyncParsableCommand {
         let prefilteringStats = PrefilteringStatistics(
             totalPossiblePairs: totalPairs,
             candidatePairs: finalOutputCandidates,
-            prefilteringTimeSeconds: totalTime,
-            bloomFilterStats: nil
+            prefilteringTimeSeconds: totalTime
         )
         
         let performanceStats = PerformanceStatistics(
@@ -370,7 +361,6 @@ struct ScanCommand: AsyncParsableCommand {
             totalCalculationTime: totalTime,
             parallelProcessingTime: totalTime,
             threadsUsed: vectorizedConfig.maxConcurrency > 0 ? vectorizedConfig.maxConcurrency : ProcessInfo.processInfo.processorCount,
-            peakMemoryUsage: nil,
             similarPairsFound: similarPairs.count,
             processingRate: Double(similarPairs.count) / totalTime
         )

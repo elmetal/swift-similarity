@@ -105,7 +105,6 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 - For each pair: TSED upper-bound check, then the exact TSED via `SimilarityCalculator`
 - `OptimizationLevel` (`conservative` / `balanced` / `aggressive` / `auto`) sets the block size;
   `AdaptiveConfiguration` picks the block size and concurrency from the project scale (see below)
-- The `enableSIMD` and hash-similarity paths are placeholders and do not affect results
 
 **HierarchicalProcessor** (`--hierarchical`)
 - Stage 1: fingerprint creation (optional sampling)
@@ -113,12 +112,8 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 - Stage 3 "Direct APTED": exact TSED for the remaining candidates (sequential)
 - The built-in presets disable sampling and candidate caps, so no similar pair is dropped
 
-**OptimizedBloomFilter, PrefilteringEngine, PerformanceOptimizedCalculator** (library only, not used by the CLI)
-- Older prefiltering pipeline based on Bloom filters, size ratios and fingerprint similarity. These
-  filters are heuristic and may drop similar pairs
-- `PerformanceOptimizedCalculator.PerformanceLevel` (aggressive / balanced / conservative) sets the
-  target reduction ratio, thread count and batch size for this pipeline
-- `PrefilteringStatistics` and `PerformanceStatistics` are also used by the CLI for `--stats` output
+**ScanStatistics** (`PrefilteringStatistics`, `PerformanceStatistics`)
+- Pair counts, timing and throughput reported by `scan --stats`
 
 ### 6. Data Models (`Sources/swift-similarity/Models/`)
 
@@ -189,6 +184,6 @@ the core count unless `--threads` is given.
 - AST: parser, extractor and converter (label convention) tests
 - Algorithm: edit distance tests
 - Calculator: TSED normalization and advanced metrics tests
-- Optimization: fingerprint bounds, Bloom filter, prefiltering, vectorized engine, hierarchical processor,
+- Optimization: fingerprint bounds, vectorized engine (including a brute-force equivalence check), hierarchical processor,
   adaptive configuration, and `TSEDPipelineTests` (soundness of the TSED upper bound, and that both
   CLI engines report the exact TSED score)

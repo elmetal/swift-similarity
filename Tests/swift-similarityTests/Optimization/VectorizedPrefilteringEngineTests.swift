@@ -27,8 +27,7 @@ func testVectorizedPrefilteringEngineConfiguration() {
     let conservativeConfig = VectorizedPrefilteringEngine.Configuration(
         optimizationLevel: .conservative,
         blockSize: 32,
-        maxConcurrency: 2,
-        enableSIMD: false
+        maxConcurrency: 2
     )
     let conservativeEngine = VectorizedPrefilteringEngine(configuration: conservativeConfig)
     #expect(conservativeEngine.configuration.optimizationLevel == .conservative)
@@ -37,8 +36,7 @@ func testVectorizedPrefilteringEngineConfiguration() {
     let aggressiveConfig = VectorizedPrefilteringEngine.Configuration(
         optimizationLevel: .aggressive,
         blockSize: 512,
-        maxConcurrency: 8,
-        enableSIMD: true
+        maxConcurrency: 8
     )
     let aggressiveEngine = VectorizedPrefilteringEngine(configuration: aggressiveConfig)
     #expect(aggressiveEngine.configuration.optimizationLevel == .aggressive)
@@ -115,45 +113,32 @@ func testVectorizedPrefilteringEngineParallelPerformance() async throws {
     #expect(aggressiveTime < 5.0) // Should complete in reasonable time
 }
 
-@Test("VectorizedPrefilteringEngine accuracy preservation")
-func testVectorizedPrefilteringEngineAccuracyPreservation() async throws {
+@Test("VectorizedPrefilteringEngine finds exactly the pairs a brute-force TSED scan finds")
+func testVectorizedPrefilteringEngineMatchesBruteForce() async throws {
     let elements = createTestElements(count: 20)
+    let threshold = 0.4
     
-    // Compare with standard prefiltering engine
-    let standardEngine = PrefilteringEngine()
-    let vectorizedEngine = VectorizedPrefilteringEngine()
-    
-    let standardResult = standardEngine.findCandidatePairs(elements: elements)
-    let vectorizedCandidates = try await vectorizedEngine.prefilter(elements: elements, threshold: 0.4)
-    let standardCandidates = standardResult.candidates.map { (elements[$0.0], elements[$0.1]) }
-    
-    // Should find similar number of candidates (allowing for optimization differences)
-    let candidateRatio = Double(vectorizedCandidates.count) / Double(max(standardCandidates.count, 1))
-    #expect(candidateRatio >= 0.8) // Should find at least 80% of standard candidates
-    #expect(candidateRatio <= 1.5) // Should not find more than 150% of standard candidates
-}
-
-@Test("VectorizedPrefilteringEngine backward compatibility")
-func testVectorizedPrefilteringEngineBackwardCompatibility() async throws {
-    let standardEngine = PrefilteringEngine()
-    let vectorizedEngine = VectorizedPrefilteringEngine.from(standardEngine)
-    
-    let elements = createTestElements(count: 15)
-    
-    // Both engines should work with the same interface
-    let standardResult = standardEngine.findCandidatePairs(elements: elements)
-    let standardResults = standardResult.candidates.map { (elements[$0.0], elements[$0.1]) }
-    let vectorizedResults = try await vectorizedEngine.prefilter(elements: elements, threshold: 0.3)
-    
-    // Results should be in the same format
-    #expect(standardResults.count >= 0)
-    #expect(vectorizedResults.count >= 0)
-    
-    // Both should find candidates
-    if elements.count > 5 {
-        let totalCandidates = standardResults.count + vectorizedResults.count
-        #expect(totalCandidates >= 0) // At least one should find candidates
+    var expected: [String: Double] = [:]
+    for i in 0..<elements.count {
+        for j in (i + 1)..<elements.count where !elements[i].isNested(with: elements[j]) {
+            let score = SimilarityCalculator()
+                .calculateSimilarity(between: elements[i].treeNode, and: elements[j].treeNode)
+                .similarityScore
+            if score >= threshold {
+                expected["\(i)-\(j)"] = score
+            }
+        }
     }
+    
+    let index = Dictionary(uniqueKeysWithValues: elements.enumerated().map { ("\($1.filePath):\($1.startLine):\($1.name)", $0) })
+    func key(_ element: CodeElement) -> Int { index["\(element.filePath):\(element.startLine):\(element.name)"]! }
+    var actual: [String: Double] = [:]
+    for (element1, element2, score) in try await VectorizedPrefilteringEngine().findCandidates(elements: elements, threshold: threshold) {
+        let (i, j) = (min(key(element1), key(element2)), max(key(element1), key(element2)))
+        actual["\(i)-\(j)"] = score
+    }
+    
+    #expect(actual == expected)
 }
 
 @Test("VectorizedPrefilteringEngine large dataset handling")
@@ -186,8 +171,7 @@ func testVectorizedPrefilteringEngineMemoryEfficiency() async throws {
     // Test with memory-conscious configuration
     let config = VectorizedPrefilteringEngine.Configuration(
         optimizationLevel: .auto,
-        blockSize: 32, // Smaller blocks for memory efficiency
-        hashMatrixCacheSize: 1000
+        blockSize: 32 // Smaller blocks for memory efficiency
     )
     let engine = VectorizedPrefilteringEngine(configuration: config)
     
@@ -198,11 +182,10 @@ func testVectorizedPrefilteringEngineMemoryEfficiency() async throws {
     }
 }
 
-@Test("VectorizedPrefilteringEngine hash matrix optimization")
-func testVectorizedPrefilteringEngineHashMatrixOptimization() async throws {
+@Test("VectorizedPrefilteringEngine results shrink as the threshold rises")
+func testVectorizedPrefilteringEngineThresholdMonotonicity() async throws {
     let elements = createTestElements(count: 50)
     
-    // Test with hash matrix precomputation
     let engine = VectorizedPrefilteringEngine()
     
     // Should efficiently handle multiple similarity checks
@@ -224,26 +207,6 @@ func testVectorizedPrefilteringEngineHashMatrixOptimization() async throws {
     for (_, _, similarity) in candidates3 {
         #expect(similarity >= 0.5)
     }
-}
-
-@Test("VectorizedPrefilteringEngine SIMD optimization")
-func testVectorizedPrefilteringEngineSIMDOptimization() async throws {
-    let elements = createTestElements(count: 30)
-    
-    // Test with SIMD enabled
-    let simdConfig = VectorizedPrefilteringEngine.Configuration(enableSIMD: true)
-    let simdEngine = VectorizedPrefilteringEngine(configuration: simdConfig)
-    
-    // Test with SIMD disabled
-    let noSIMDConfig = VectorizedPrefilteringEngine.Configuration(enableSIMD: false)
-    let noSIMDEngine = VectorizedPrefilteringEngine(configuration: noSIMDConfig)
-    
-    let simdCandidates = try await simdEngine.findCandidates(elements: elements, threshold: 0.3)
-    let noSIMDCandidates = try await noSIMDEngine.findCandidates(elements: elements, threshold: 0.3)
-    
-    // Both should find similar candidates (allowing for minor differences)
-    let candidateDifference = abs(simdCandidates.count - noSIMDCandidates.count)
-    #expect(candidateDifference <= max(simdCandidates.count, noSIMDCandidates.count) / 5) // Allow 20% variation
 }
 
 @Test("VectorizedPrefilteringEngine edge cases")
