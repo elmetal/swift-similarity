@@ -128,7 +128,20 @@ public class CodeElementExtractor {
     /// - Returns: Array of all extracted code elements
     /// - Throws: File system or parsing errors
     public func extractElements(fromDirectory directoryPath: String) throws -> [CodeElement] {
-        let swiftFiles = try FileReader.findSwiftFiles(in: directoryPath)
+        try extractElements(fromFiles: FileReader.findSwiftFiles(in: directoryPath))
+    }
+
+    /// Extracts code elements from directories and Swift files
+    /// - Parameters:
+    ///   - paths: Directories (searched recursively) and `.swift` files
+    ///   - exclude: Patterns for files and directories to skip (see `FileReader.findSwiftFiles(in:excluding:)`)
+    /// - Returns: Array of all extracted code elements, in file path order
+    /// - Throws: File system or parsing errors
+    public func extractElements(fromPaths paths: [String], excluding exclude: [ExcludePattern] = []) throws -> [CodeElement] {
+        try extractElements(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
+    }
+
+    private func extractElements(fromFiles swiftFiles: [String]) throws -> [CodeElement] {
         var allElements: [CodeElement] = []
         
         for filePath in swiftFiles {

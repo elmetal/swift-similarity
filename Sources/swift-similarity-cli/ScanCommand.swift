@@ -7,17 +7,24 @@ import swift_similarity
 struct ScanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "scan",
-        abstract: "Scan a directory for similar Swift declarations (functions, initializers, types, protocols, extensions)"
+        abstract: "Scan directories and files for similar Swift declarations (functions, initializers, types, protocols, extensions)",
+        discussion: """
+            Settings are also read from the nearest \(SimilarityConfig.fileName) in the current directory \
+            or one of its parents. Command-line options override it; see the README for the supported keys.
+            """
     )
     
-    @Argument(help: "Directory to scan for Swift files")
-    var directory: String
+    @Argument(help: "Directories and .swift files to scan")
+    var paths: [String]
     
-    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames))")
-    var elementType: String = "function"
+    @Option(name: .long, help: ArgumentHelp("Skip files and directories matching a glob pattern (repeatable), such as 'Tests', '**/Generated/**' or '*.generated.swift'", valueName: "pattern"))
+    var exclude: [String] = []
     
-    @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0)")
-    var threshold: Double = 0.8
+    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames); default: \(ScanSettings.defaultElementType))")
+    var elementType: String?
+    
+    @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0; default: \(ScanSettings.defaultThreshold))")
+    var threshold: Double?
     
     @Flag(name: .shortAndLong, help: "Also report structural, label and depth similarity for each pair (does not change which pairs are found)")
     var advanced: Bool = false
@@ -48,16 +55,21 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Use hierarchical processing pipeline for massive datasets (Phase 11)")
     var hierarchical: Bool = false
     
-    func validate() throws {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw ValidationError("'\(directory)' is not a directory.")
+    mutating func validate() throws {
+        for path in paths {
+            do {
+                try FileReader.validateInputPath(path)
+            } catch {
+                throw ValidationError(error.localizedDescription)
+            }
         }
-        guard (0.0...1.0).contains(threshold) else {
-            throw ValidationError("Threshold must be between 0.0 and 1.0, got \(threshold).")
+        applySettings(config: Self.loadConfig())
+        // applySettings filled in threshold and elementType.
+        guard (0.0...1.0).contains(threshold!) else {
+            throw ValidationError("Threshold must be between 0.0 and 1.0, got \(threshold!).")
         }
-        guard Self.elementTypes(for: elementType) != nil else {
-            throw ValidationError("Invalid element type '\(elementType)'. Valid types: \(Self.elementTypeNames)")
+        guard Self.elementTypes(for: elementType!) != nil else {
+            throw ValidationError("Invalid element type '\(elementType!)'. Valid types: \(Self.elementTypeNames)")
         }
         guard ["text", "json"].contains(format.lowercased()) else {
             throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
@@ -71,15 +83,19 @@ struct ScanCommand: AsyncParsableCommand {
     }
     
     mutating func run() async throws {
+        // validate() filled in and checked these values.
+        let threshold = threshold!
         // Option values are case-insensitive; normalize them for display and output.
-        elementType = elementType.lowercased()
+        let elementType = elementType!.lowercased()
         format = format.lowercased()
         
-        // Both values were checked by validate().
         let targetElementTypes = Self.elementTypes(for: elementType)!
         let optimizationLevel = Self.optimizationLevel(for: optimization)!
         
-        printDiagnostic("Scanning directory: \(directory)")
+        printDiagnostic("Scanning: \(paths.joined(separator: ", "))")
+        if !exclude.isEmpty {
+            printDiagnostic("Exclude: \(exclude.joined(separator: ", "))")
+        }
         printDiagnostic("Element type: \(elementType)")
         printDiagnostic("Threshold: \(threshold)")
         printDiagnostic("Advanced metrics: \(advanced)")
@@ -87,13 +103,13 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("")
         
         do {
-            // Extract code elements from directory
+            // Extract code elements from the given paths
             let extractorConfig = CodeElementExtractor.Configuration(
                 elementTypes: targetElementTypes,
                 maxPreviewLines: 5
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
-            let elements = try extractor.extractElements(fromDirectory: directory)
+            let elements = try extractor.extractElements(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
             
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
@@ -111,6 +127,7 @@ struct ScanCommand: AsyncParsableCommand {
             } else {
                 try await calculateWithOptimization(
                     elements: elements,
+                    threshold: threshold,
                     optimizationLevel: optimizationLevel
                 )
             }
@@ -149,6 +166,36 @@ struct ScanCommand: AsyncParsableCommand {
     
     // MARK: - Helper Methods
     
+    /// Reads the nearest config file, warning about problems with it on stderr.
+    private static func loadConfig() -> SimilarityConfig? {
+        let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        guard let url = SimilarityConfig.find(from: currentDirectory) else { return nil }
+        do {
+            let config = try SimilarityConfig.load(from: url)
+            printDiagnostic("Using config: \(url.path)")
+            for key in config.unknownKeys {
+                printDiagnostic("Warning: \(url.path): unsupported key '\(key)' is ignored")
+            }
+            return config
+        } catch {
+            printDiagnostic("Warning: ignoring \(url.path): \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    /// Fills in options not given on the command line from the config file and defaults.
+    private mutating func applySettings(config: SimilarityConfig?) {
+        let settings = ScanSettings.resolve(
+            threshold: threshold,
+            elementType: elementType,
+            exclude: exclude,
+            config: config
+        )
+        threshold = settings.threshold
+        elementType = settings.elementType
+        exclude = settings.exclude
+    }
+    
     /// Accepted `--element-type` values, for help and error messages.
     static let elementTypeNames = (CodeElementType.allCases.map(\.rawValue) + ["all"]).joined(separator: ", ")
     
@@ -169,6 +216,7 @@ struct ScanCommand: AsyncParsableCommand {
     /// Calculates similarity with performance optimization
     private func calculateWithOptimization(
         elements: [CodeElement],
+        threshold: Double,
         optimizationLevel: VectorizedPrefilteringEngine.OptimizationLevel
     ) async throws -> ([(CodeElement, CodeElement, Double)], PerformanceStatistics) {
         
