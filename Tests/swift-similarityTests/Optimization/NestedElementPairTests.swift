@@ -61,8 +61,8 @@ func testIsNested() throws {
     #expect(!element("a", line: 14).isNested(with: element("b", line: 14)))
 }
 
-@Test("Engines never report a declaration together with one nested inside it")
-func testEnginesSkipNestedPairs() async throws {
+@Test("Scanner never reports a declaration together with one nested inside it")
+func testScannerSkipsNestedPairs() async throws {
     let elements = try extractAll()
     let nested = nestedPairKeys(elements)
     #expect(nested.count == 6) // Container⊃{method,helper}, method⊃helper, same for Other
@@ -70,15 +70,9 @@ func testEnginesSkipNestedPairs() async throws {
     let totalPairs = elements.count * (elements.count - 1) / 2
     
     // Threshold 0 reports every pair except the nested ones
-    let vectorized = try await VectorizedPrefilteringEngine(configuration: .init(optimizationLevel: .conservative))
-        .findCandidates(elements: elements, threshold: 0.0)
-    let vectorizedKeys = Set(vectorized.map { pairKey($0.0, $0.1) })
-    #expect(vectorizedKeys.isDisjoint(with: nested))
-    #expect(vectorized.count == totalPairs - nested.count)
-    
-    let (hierarchical, _) = try await HierarchicalProcessor(configuration: .optimal(for: .small), vectorizedConfig: nil, progressCallback: nil)
-        .process(elements: elements, threshold: 0.0)
-    let hierarchicalKeys = Set(hierarchical.map { pairKey($0.0, $0.1) })
-    #expect(hierarchicalKeys.isDisjoint(with: nested))
-    #expect(hierarchical.count == totalPairs - nested.count)
+    let result = try await SimilarityScanner().scan(elements, threshold: 0.0)
+    let keys = Set(result.pairs.map { pairKey($0.first, $0.second) })
+    #expect(keys.isDisjoint(with: nested))
+    #expect(result.pairs.count == totalPairs - nested.count)
+    #expect(result.statistics.nestedPairs == nested.count)
 }

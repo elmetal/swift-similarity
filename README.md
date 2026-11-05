@@ -89,8 +89,9 @@ Unknown keys are ignored with a warning, and a file that cannot be read or parse
 a warning on stderr.
 
 ### Performance
-`scan` uses every core. `--threads N` limits the number of parallel tasks. `--optimization` is
-deprecated and has no effect.
+`scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many
+pairs were skipped by the exact filters and how long each phase took. `--optimization` and
+`--hierarchical` are deprecated and have no effect.
 
 ### Advanced options
 ```bash

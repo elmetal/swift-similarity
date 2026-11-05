@@ -38,8 +38,7 @@ are the same as an exhaustive comparison.
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
 ```
 
-Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (default) or
-`HierarchicalProcessor` (`--hierarchical`).
+Pair enumeration and parallelism are handled by `SimilarityScanner`.
 
 ## Core Components
 
@@ -49,8 +48,9 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 - `@main` entry point (swift-argument-parser); `scan` is the default subcommand
 
 **ScanCommand**
-- Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`), threshold, output format, output file, code previews, optimization level, thread count, progress, statistics, hierarchical mode
-- Extracts elements, then runs either `VectorizedPrefilteringEngine` or `HierarchicalProcessor`
+- Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`), threshold, output format, output file, code previews, thread count, progress, statistics
+- Extracts elements, then runs `SimilarityScanner`
+- `--optimization` and `--hierarchical` are deprecated no-ops kept for existing scripts; they print a notice on stderr
 - `--advanced` adds structural / label / depth metrics (`AdvancedSimilarityMetrics`) for each reported pair; pairs are still selected by TSED
 
 **OutputFormatter / OutputModels**
@@ -100,20 +100,16 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 - `tsedUpperBound`: `max(1 - δ_lower / MaxNodes, 0)`. If it is below the threshold, the pair is skipped
   with no false negatives
 
-**VectorizedPrefilteringEngine** (default CLI path)
-- Builds fingerprints, then processes the pairs in parallel with a `TaskGroup`
-- For each pair: TSED upper-bound check, then the exact TSED via `SimilarityCalculator`
+**SimilarityScanner**
+- One exact pipeline: fingerprint each element once, skip nested pairs, skip pairs whose TSED upper
+  bound is below the threshold, then compute the bounded TSED via `SimilarityCalculator` in parallel
 - Splits the pairs into cost-balanced tasks run on every core (see Scheduling below); results are
-  sorted by score
+  sorted by score, ties in input order
+- Reports progress per phase (fingerprinting, comparing) through an optional handler
 
-**HierarchicalProcessor** (`--hierarchical`)
-- Stage 1: fingerprint creation (optional sampling)
-- Stage 2 "Quick Filter": TSED upper-bound check over all pairs
-- Stage 3 "Direct APTED": exact TSED for the remaining candidates (sequential)
-- The built-in presets disable sampling and candidate caps, so no similar pair is dropped
-
-**ScanStatistics** (`PrefilteringStatistics`, `PerformanceStatistics`)
-- Pair counts, timing and throughput reported by `scan --stats`
+**ScanStatistics**
+- How many pairs were nested, ruled out by the upper bound or compared with TSED, the number of
+  similar pairs, and the time of each phase; reported by `scan --stats`
 
 ### 6. Data Models (`Sources/swift-similarity/Models/`)
 
@@ -134,15 +130,16 @@ Pair enumeration and parallelism are handled by `VectorizedPrefilteringEngine` (
 
 ### Scheduling
 
-`VectorizedPrefilteringEngine` orders the elements by tree size, largest first. It compares each
+`SimilarityScanner` orders the elements by tree size, largest first. It compares each
 element with the elements after it, and cuts each of these rows into tasks of roughly equal estimated
 cost (the product of the two tree sizes). Tasks are submitted heaviest first to a `TaskGroup` with one
 task per core (`--threads` overrides this). Results are sorted by score, highest first, with ties in
 input order, so the output does not depend on which task finishes first.
 
-`AdaptiveConfiguration` and `--optimization` used to pick block sizes and cap the number of threads for
-larger projects. Every pair is independent and CPU-bound, so all scales now use every core, and the
-level no longer changes anything.
+Earlier versions had a second, "hierarchical" engine and per-scale configuration (block sizes, thread
+caps, sampling, candidate caps, early termination). Every pair is independent and CPU-bound and the
+filters are exact, so a single pipeline on every core finds the same pairs; that configuration was
+removed, and `--optimization` / `--hierarchical` are accepted but ignored.
 
 ## Data Flow
 

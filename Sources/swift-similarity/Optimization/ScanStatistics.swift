@@ -2,62 +2,56 @@ import Foundation
 
 // MARK: - Scan Statistics
 
-/// How many pairs the exact prefilters left for the edit distance computation.
-public struct PrefilteringStatistics: Sendable {
-    /// Total number of possible pairs
-    public let totalPossiblePairs: Int
-    /// Number of candidate pairs after prefiltering
-    public let candidatePairs: Int
-    /// Reduction ratio (0.0-1.0, higher is better)
-    public let reductionRatio: Double
-    /// Time spent in prefiltering (seconds)
-    public let prefilteringTimeSeconds: Double
-    
-    /// Creates prefiltering statistics
-    public init(totalPossiblePairs: Int, candidatePairs: Int, prefilteringTimeSeconds: Double) {
-        self.totalPossiblePairs = totalPossiblePairs
-        self.candidatePairs = candidatePairs
-        self.reductionRatio = totalPossiblePairs > 0 ? 1.0 - (Double(candidatePairs) / Double(totalPossiblePairs)) : 0.0
-        self.prefilteringTimeSeconds = prefilteringTimeSeconds
-    }
-}
+/// Pair counts and timings of a `SimilarityScanner` scan, reported by `scan --stats`.
+///
+/// Every pair is accounted for once: `totalPairs == nestedPairs + pairsRuledOutByUpperBound + pairsCompared`.
+public struct ScanStatistics: Sendable, Equatable {
+    /// Number of elements scanned
+    public let elementCount: Int
+    /// Number of pairs of elements
+    public let totalPairs: Int
+    /// Pairs skipped because one declaration is nested inside the other
+    public let nestedPairs: Int
+    /// Pairs skipped because the TSED upper bound from the label histograms is below the threshold
+    public let pairsRuledOutByUpperBound: Int
+    /// Pairs passed to the bounded TSED computation
+    public let pairsCompared: Int
+    /// Pairs whose TSED score reached the threshold
+    public let similarPairs: Int
+    /// Number of tasks run concurrently
+    public let workerCount: Int
+    /// Seconds spent computing fingerprints
+    public let fingerprintTime: Double
+    /// Seconds spent comparing pairs, including sorting the results
+    public let comparisonTime: Double
 
-/// Timing and throughput of a scan, reported by `scan --stats`.
-public struct PerformanceStatistics: Sendable {
-    /// Prefiltering statistics
-    public let prefilteringStats: PrefilteringStatistics
-    /// Total calculation time (seconds)
-    public let totalCalculationTime: Double
-    /// Parallel processing time (seconds)
-    public let parallelProcessingTime: Double
-    /// Number of threads used
-    public let threadsUsed: Int
-    /// Similar pairs found
-    public let similarPairsFound: Int
-    /// Processing rate (pairs per second)
-    public let processingRate: Double
-    
-    /// Creates performance statistics
     public init(
-        prefilteringStats: PrefilteringStatistics,
-        totalCalculationTime: Double,
-        parallelProcessingTime: Double,
-        threadsUsed: Int,
-        similarPairsFound: Int,
-        processingRate: Double
+        elementCount: Int,
+        totalPairs: Int,
+        nestedPairs: Int,
+        pairsRuledOutByUpperBound: Int,
+        pairsCompared: Int,
+        similarPairs: Int,
+        workerCount: Int,
+        fingerprintTime: Double,
+        comparisonTime: Double
     ) {
-        self.prefilteringStats = prefilteringStats
-        self.totalCalculationTime = totalCalculationTime
-        self.parallelProcessingTime = parallelProcessingTime
-        self.threadsUsed = threadsUsed
-        self.similarPairsFound = similarPairsFound
-        self.processingRate = processingRate
+        self.elementCount = elementCount
+        self.totalPairs = totalPairs
+        self.nestedPairs = nestedPairs
+        self.pairsRuledOutByUpperBound = pairsRuledOutByUpperBound
+        self.pairsCompared = pairsCompared
+        self.similarPairs = similarPairs
+        self.workerCount = workerCount
+        self.fingerprintTime = fingerprintTime
+        self.comparisonTime = comparisonTime
     }
-    
-    /// Overall performance improvement ratio compared to naive O(n²) approach
-    public var performanceImprovement: Double {
-        let naivePairs = prefilteringStats.totalPossiblePairs
-        let actualPairs = prefilteringStats.candidatePairs
-        return naivePairs > 0 && actualPairs > 0 ? Double(naivePairs) / Double(actualPairs) : 1.0
+
+    /// Seconds for the whole scan
+    public var totalTime: Double { fingerprintTime + comparisonTime }
+
+    /// Share of pairs (0.0-1.0) that never reached the TSED computation
+    public var skippedRatio: Double {
+        totalPairs > 0 ? 1.0 - Double(pairsCompared) / Double(totalPairs) : 0.0
     }
 }

@@ -88,14 +88,13 @@ func testUpperBoundRejects() {
     #expect(abs(fingerprint(of: small).tsedUpperBound(to: fingerprint(of: large)) - 0.1) < 1e-9)
 }
 
-// MARK: - CLI engines report TSED
+// MARK: - Scanner reports TSED
 
-@Test("Vectorized engine reports the TSED score for every pair above the threshold")
+@Test("Scanner reports the TSED score for every pair above the threshold")
 func testVectorizedEngineReportsTSED() async throws {
     let elements = sources.map { element($0.1, name: $0.0) }
     let threshold = 0.3
-    let engine = VectorizedPrefilteringEngine(configuration: .init(optimizationLevel: .conservative))
-    let results = try await engine.findCandidates(elements: elements, threshold: threshold)
+    let results = try await SimilarityScanner().findSimilarPairs(in: elements, threshold: threshold)
     
     let calculator = SimilarityCalculator()
     var expected: [String: Double] = [:]
@@ -115,19 +114,4 @@ func testVectorizedEngineReportsTSED() async throws {
     
     #expect(actual == expected)
     #expect(actual["add-sum"] == 1.0)
-}
-
-@Test("Hierarchical processor reports the TSED score")
-func testHierarchicalProcessorReportsTSED() async throws {
-    let elements = sources.map { element($0.1, name: $0.0) }
-    let processor = HierarchicalProcessor(
-        configuration: .optimal(for: .small),
-        vectorizedConfig: nil,
-        progressCallback: nil
-    )
-    let (results, _) = try await processor.process(elements: elements, threshold: 0.9)
-    
-    #expect(results.count == 1)
-    #expect(Set([results.first?.0.name, results.first?.1.name]) == ["sum", "add"])
-    #expect(results.first?.2 == 1.0)
 }
