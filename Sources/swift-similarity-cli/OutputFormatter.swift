@@ -10,6 +10,8 @@ struct OutputFormatter {
     let advanced: Bool
     /// Tree edit operation costs used for the TSED scores
     let costs: APTED.OperationCosts
+    /// What was compared ("tree" or "members")
+    let compare: String
     let printCodePreviews: Bool
     let sortOrder: SimilarityRanking.SortOrder
     
@@ -45,7 +47,8 @@ struct OutputFormatter {
                 totalPairs: similarPairs.count,
                 elementType: elementType,
                 threshold: threshold,
-                renameCost: costs.substitution,
+                compare: compare,
+                renameCost: compare == "tree" ? costs.substitution : nil,
                 advancedMetrics: advanced,
                 sortOrder: sortOrder.rawValue
             ),
@@ -93,7 +96,11 @@ struct OutputFormatter {
         let elementDescription = elementType.lowercased() == "all" ? "Elements (All Types)" : "\(elementType.capitalized) Elements"
         output += "Similar \(elementDescription) Found: \(similarPairs.count)\n"
         output += "Threshold: \(threshold)\n"
-        output += "Rename Cost: \(costs.substitution)\n"
+        if compare == "tree" {
+            output += "Rename Cost: \(costs.substitution)\n"
+        } else {
+            output += "Compare: \(compare) (kind, name and type of each member)\n"
+        }
         output += "Advanced Metrics: \(advanced)\n"
         output += "\n"
         

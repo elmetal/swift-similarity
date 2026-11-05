@@ -54,6 +54,9 @@ struct ScanCommand: AsyncParsableCommand {
 
     // MARK: - Scoring Options
 
+    @Option(name: .long, help: ArgumentHelp("What to compare: 'tree' (whole syntax trees, TSED) or 'members' (the members of types, protocols and extensions: kind, name and type, ignoring order and bodies; element type defaults to all types) (default: \(ScanSettings.defaultCompare))", valueName: "mode"))
+    var compare: String?
+
     @Option(name: .long, help: ArgumentHelp("Cost of renaming a node (changing its label, such as + to - or one syntax kind to another) in the tree edit distance; insertions and deletions cost 1. Lower values make structural variants score higher (default: \(ScanSettings.defaultRenameCost))", valueName: "cost"))
     var renameCost: Double?
     
@@ -95,8 +98,19 @@ struct ScanCommand: AsyncParsableCommand {
         guard (0.0...1.0).contains(settings.threshold) else {
             throw ValidationError("Threshold must be between 0.0 and 1.0, got \(settings.threshold).")
         }
-        guard Self.elementTypes(for: settings.elementType) != nil else {
+        guard let mode = CompareMode(rawValue: settings.compare.lowercased()) else {
+            throw ValidationError("Invalid compare mode '\(settings.compare)'. Valid modes: \(CompareMode.allCases.map(\.rawValue).joined(separator: ", "))")
+        }
+        guard Self.elementTypes(for: settings.elementType, mode: .tree) != nil else {
             throw ValidationError("Invalid element type '\(settings.elementType)'. Valid types: \(Self.elementTypeNames)")
+        }
+        if mode == .members {
+            guard Self.elementTypes(for: settings.elementType, mode: .members) != nil else {
+                throw ValidationError("--compare members compares types, protocols and extensions, but the element type is '\(settings.elementType)'. Valid types: \(Self.memberElementTypeNames)")
+            }
+            guard !advanced else {
+                throw ValidationError("--advanced reports syntax tree metrics and cannot be used with --compare members.")
+            }
         }
         guard ["text", "json"].contains(format.lowercased()) else {
             throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
@@ -129,7 +143,8 @@ struct ScanCommand: AsyncParsableCommand {
         let elementType = settings.elementType.lowercased()
         format = format.lowercased()
         
-        let targetElementTypes = Self.elementTypes(for: elementType)!
+        let compareMode = CompareMode(rawValue: settings.compare.lowercased())!
+        let targetElementTypes = Self.elementTypes(for: elementType, mode: compareMode)!
         let sortOrder = SimilarityRanking.SortOrder(rawValue: settings.sort.lowercased())!
         
         if optimization != nil {
@@ -145,8 +160,13 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Element type: \(elementType)")
         printDiagnostic("Threshold: \(threshold)")
         printDiagnostic("Minimum lines: \(minLines), minimum tokens: \(minTokens)")
-        printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
-        printDiagnostic("Rename cost: \(settings.renameCost)")
+        switch compareMode {
+        case .tree:
+            printDiagnostic("Compare: \(bodyOnly ? "bodies only" : "whole declarations")")
+            printDiagnostic("Rename cost: \(settings.renameCost)")
+        case .members:
+            printDiagnostic("Compare: members (kind, name and type)")
+        }
         printDiagnostic("Advanced metrics: \(advanced)")
         printDiagnostic("")
         
@@ -167,12 +187,18 @@ struct ScanCommand: AsyncParsableCommand {
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
             
-            let scanner = SimilarityScanner(
-                maxConcurrency: threads,
-                progressHandler: progress ? Self.printProgress : nil,
-                costs: settings.operationCosts
-            )
-            let result = try await scanner.scan(elements, threshold: threshold)
+            let result: SimilarityScanner.Result
+            switch compareMode {
+            case .tree:
+                let scanner = SimilarityScanner(
+                    maxConcurrency: threads,
+                    progressHandler: progress ? Self.printProgress : nil,
+                    costs: settings.operationCosts
+                )
+                result = try await scanner.scan(elements, threshold: threshold)
+            case .members:
+                result = MemberSimilarityScanner().scan(elements, threshold: threshold)
+            }
             let unsortedPairs = result.pairs.map { ($0.first, $0.second, $0.similarity) }
             let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
             
@@ -183,7 +209,7 @@ struct ScanCommand: AsyncParsableCommand {
             }
             
             if stats {
-                showStatistics(result.statistics)
+                showStatistics(result.statistics, mode: compareMode)
             }
             
             // Create output formatter
@@ -192,6 +218,7 @@ struct ScanCommand: AsyncParsableCommand {
                 threshold: threshold,
                 advanced: advanced,
                 costs: settings.operationCosts,
+                compare: compareMode.rawValue,
                 printCodePreviews: showCode,
                 sortOrder: sortOrder
             )
@@ -246,7 +273,8 @@ struct ScanCommand: AsyncParsableCommand {
             ignoreDirectives: ignoreDirectives,
             sort: sort,
             failOnDuplicates: failOnDuplicates,
-            renameCost: renameCost
+            renameCost: renameCost,
+            compare: compare
         )
     }
     
@@ -268,18 +296,34 @@ struct ScanCommand: AsyncParsableCommand {
         sort = settings.sort
         failOnDuplicates = settings.failOnDuplicates
         renameCost = settings.renameCost
+        compare = settings.compare
     }
     
     /// Accepted `--element-type` values, for help and error messages.
     static let elementTypeNames = (CodeElementType.allCases.map(\.rawValue) + ["all"]).joined(separator: ", ")
     
-    /// The element types selected by `--element-type`, or nil if the value is unknown.
-    private static func elementTypes(for value: String) -> Set<CodeElementType>? {
+    /// What `--compare` compares.
+    enum CompareMode: String, CaseIterable {
+        case tree
+        case members
+    }
+    
+    /// Element types that have members, for `--compare members`.
+    static let memberElementTypes: Set<CodeElementType> = [.struct, .class, .enum, .actor, .protocol, .extension]
+    
+    /// Accepted `--element-type` values with `--compare members`, for error messages.
+    static let memberElementTypeNames = (CodeElementType.allCases.filter(memberElementTypes.contains).map(\.rawValue) + ["all"]).joined(separator: ", ")
+    
+    /// The element types selected by `--element-type`, or nil if the value is unknown or, with
+    /// `--compare members`, names a declaration without members. `all` means all types with members
+    /// in that mode.
+    private static func elementTypes(for value: String, mode: CompareMode) -> Set<CodeElementType>? {
         let value = value.lowercased()
+        let available = mode == .members ? memberElementTypes : Set(CodeElementType.allCases)
         if value == "all" {
-            return Set(CodeElementType.allCases)
+            return available
         }
-        return CodeElementType(rawValue: value).map { [$0] }
+        return CodeElementType(rawValue: value).flatMap { available.contains($0) ? [$0] : nil }
     }
     
     /// Writes a progress line to stderr, ending it when a phase is done.
@@ -300,7 +344,7 @@ struct ScanCommand: AsyncParsableCommand {
     }
     
     /// Shows pair counts and timings of the scan
-    private func showStatistics(_ stats: ScanStatistics) {
+    private func showStatistics(_ stats: ScanStatistics, mode: CompareMode) {
         func percent(_ count: Int) -> String {
             String(format: "%.1f%%", stats.totalPairs > 0 ? Double(count) / Double(stats.totalPairs) * 100 : 0)
         }
@@ -309,8 +353,14 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Threads: \(stats.workerCount)")
         printDiagnostic("Total pairs: \(stats.totalPairs)")
         printDiagnostic("  Nested (skipped): \(stats.nestedPairs) (\(percent(stats.nestedPairs)))")
-        printDiagnostic("  Ruled out by upper bound: \(stats.pairsRuledOutByUpperBound) (\(percent(stats.pairsRuledOutByUpperBound)))")
-        printDiagnostic("  Compared with TSED: \(stats.pairsCompared) (\(percent(stats.pairsCompared)))")
+        switch mode {
+        case .tree:
+            printDiagnostic("  Ruled out by upper bound: \(stats.pairsRuledOutByUpperBound) (\(percent(stats.pairsRuledOutByUpperBound)))")
+            printDiagnostic("  Compared with TSED: \(stats.pairsCompared) (\(percent(stats.pairsCompared)))")
+        case .members:
+            printDiagnostic("  Not comparable (different groups, too few members) or ruled out by member counts: \(stats.pairsRuledOutByUpperBound) (\(percent(stats.pairsRuledOutByUpperBound)))")
+            printDiagnostic("  Compared by members: \(stats.pairsCompared) (\(percent(stats.pairsCompared)))")
+        }
         printDiagnostic("Similar pairs: \(stats.similarPairs)")
         printDiagnostic("Fingerprint time: \(String(format: "%.3f", stats.fingerprintTime))s")
         printDiagnostic("Comparison time: \(String(format: "%.3f", stats.comparisonTime))s")

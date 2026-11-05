@@ -49,8 +49,11 @@ struct ScanResult: Codable {
         let totalPairs: Int
         let elementType: String
         let threshold: Double
-        /// Cost of a node rename in the tree edit distance (insertions and deletions cost 1)
-        let renameCost: Double
+        /// What was compared: "tree" (TSED) or "members"
+        let compare: String
+        /// Cost of a node rename in the tree edit distance (insertions and deletions cost 1);
+        /// absent with `compare` "members", which has no edit distance
+        let renameCost: Double?
         let advancedMetrics: Bool
         /// Order of `similarPairs`: "similarity" or "priority"
         let sortOrder: String
