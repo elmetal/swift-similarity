@@ -182,7 +182,7 @@ struct ScanCommand: AsyncParsableCommand {
                 compareBodyOnly: bodyOnly
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
-            let elements = try extractor.extractElements(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
+            let (elements, conformances) = try extractor.extractElementsAndConformances(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
             
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
             printDiagnostic("Found \(elements.count) \(elementDescription)")
@@ -197,7 +197,7 @@ struct ScanCommand: AsyncParsableCommand {
                 )
                 result = try await scanner.scan(elements, threshold: threshold)
             case .members:
-                result = MemberSimilarityScanner().scan(elements, threshold: threshold)
+                result = MemberSimilarityScanner().scan(elements, threshold: threshold, conformances: conformances)
             }
             let unsortedPairs = result.pairs.map { ($0.first, $0.second, $0.similarity) }
             let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)

@@ -138,8 +138,17 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
   type count 1; of the rest, those matching in name or in type count 0.5; each member matches once
 - `upperBound(count1:count2:)` = `min / max` skips pairs whose member counts already rule them out
 
+**ConformanceIndex**
+- Built by `CodeElementExtractor.extractElementsAndConformances(fromPaths:excluding:)` from every
+  type, extension and protocol in the scanned files (regardless of filters): type name → inherited
+  protocols, protocol → requirements (kind, `static`, name), plus a table of common standard
+  library protocols
+- `membersExcludingWitnesses(of:)` leaves out members that satisfy a requirement of a protocol the
+  type conforms to, directly or through protocol inheritance
+
 **MemberSimilarityScanner**
-- Compares elements with at least two members, within groups (concrete types, protocols,
+- With a `ConformanceIndex`, compares members after leaving out protocol witnesses
+- Compares elements with at least two (remaining) members, within groups (concrete types, protocols,
   extensions), skipping nested pairs; returns the same `Result` and `ScanStatistics` as
   `SimilarityScanner`, in the same order (most similar first, ties in input order)
 

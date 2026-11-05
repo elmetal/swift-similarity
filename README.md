@@ -144,9 +144,30 @@ whose type is inferred (`var count = 0`) only matches a property with the same n
 
 Only types of the same group are compared: structs, classes, enums and actors with each other,
 protocols with protocols, and extensions with extensions. Comparing a protocol with the types that
-conform to it would mostly report the conformance. Extensions that implement the same protocol for
-different types still score high, since they declare the same members. Types with fewer than two
-members are skipped, as are `--min-lines` short declarations and `similarity-ignore` ones.
+conform to it would mostly report the conformance.
+
+Members that only satisfy a protocol requirement (protocol witnesses) are left out before
+comparing, because every type conforming to the protocol declares them. Without this, extensions
+that implement the same protocol for different types would all look alike. A member is a witness
+when the type conforms to a protocol that requires a member of the same kind, `static` and name
+(types are not compared, since associated types and `Self` are written differently). The
+requirements come from:
+
+- protocols declared in the scanned files, including the protocols they inherit from;
+- common standard library protocols (`Equatable`, `Hashable`, `Comparable`, `Codable`,
+  `Identifiable`, `CustomStringConvertible`, `RawRepresentable`, `CaseIterable`, `LocalizedError`,
+  `Sequence`, `Collection`, the `ExpressibleBy…Literal` protocols and a few more).
+
+A conformance counts wherever it is declared: on the type, or on any extension of it in the scanned
+files (`extension Square: Shape {}` makes the members of every `Square` extension that implement
+`Shape` witnesses). An enum with a raw type (`enum Status: String`) is `RawRepresentable`. Members
+of a protocol extension that provide defaults for the protocol's own requirements are left out too.
+Types are matched by simple name, so `Outer.Inner` and `Inner` are the same type. Requirements of
+protocols from other modules that are not in the list above are unknown, and their witnesses are
+compared like other members.
+
+Types with fewer than two members left are skipped, as are `--min-lines` short declarations and
+`similarity-ignore` ones.
 `--rename-cost`, `--body-only`, `--min-tokens` and `--advanced` apply to `--compare tree` only.
 In `similarity.toml`, set `compare = "members"`.
 

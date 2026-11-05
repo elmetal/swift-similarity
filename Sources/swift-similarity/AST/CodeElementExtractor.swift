@@ -140,6 +140,12 @@ public final class CodeElementExtractor: Sendable {
     /// - Returns: Array of extracted code elements
     /// - Throws: File reading or parsing errors
     public func extractElements(from filePath: String) throws -> [CodeElement] {
+        try extractElementsAndConformances(from: filePath).elements
+    }
+    
+    /// Extracts code elements from a Swift file, and the conformances and protocol requirements
+    /// it declares (from every type, extension and protocol, whatever the configuration selects)
+    private func extractElementsAndConformances(from filePath: String) throws -> (elements: [CodeElement], conformances: ConformanceIndex) {
         let sourceContent = try String(contentsOf: URL(fileURLWithPath: filePath))
         let sourceFile = SwiftASTParser.parseSource(sourceContent)
         let sourceLines = sourceContent.components(separatedBy: .newlines)
@@ -153,7 +159,7 @@ public final class CodeElementExtractor: Sendable {
         )
         
         visitor.walk(sourceFile)
-        return visitor.extractedElements
+        return (visitor.extractedElements, visitor.conformances)
     }
     
     /// Extracts code elements from a directory
@@ -174,13 +180,33 @@ public final class CodeElementExtractor: Sendable {
         try extractElements(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
     }
 
+    /// Extracts code elements from directories and Swift files, together with the protocol
+    /// conformances and requirements declared in those files, for `MemberSimilarityScanner`.
+    ///
+    /// The conformance index covers every type, extension and protocol in the files, including
+    /// declarations that the configuration filters out (other element types, short or ignored ones).
+    public func extractElementsAndConformances(fromPaths paths: [String], excluding exclude: [ExcludePattern] = []) throws -> (elements: [CodeElement], conformances: ConformanceIndex) {
+        try extractElementsAndConformances(fromFiles: FileReader.findSwiftFiles(in: paths, excluding: exclude))
+    }
+
+    private func extractElements(fromFiles swiftFiles: [String]) throws -> [CodeElement] {
+        try extractElementsAndConformances(fromFiles: swiftFiles).elements
+    }
+
     /// Extracts the files in parallel (each file is parsed and walked independently) and returns
     /// their elements in file order. When files fail, the first failing file's error is thrown.
-    private func extractElements(fromFiles swiftFiles: [String]) throws -> [CodeElement] {
+    private func extractElementsAndConformances(fromFiles swiftFiles: [String]) throws -> (elements: [CodeElement], conformances: ConformanceIndex) {
         let results = swiftFiles.concurrentMap { filePath in
-            Result { try self.extractElements(from: filePath) }
+            Result { try self.extractElementsAndConformances(from: filePath) }
         }
-        return try results.flatMap { try $0.get() }
+        var elements: [CodeElement] = []
+        var conformances = ConformanceIndex()
+        for result in results {
+            let file = try result.get()
+            elements.append(contentsOf: file.elements)
+            conformances.merge(file.conformances)
+        }
+        return (elements, conformances)
     }
 }
 
@@ -195,6 +221,8 @@ private class CodeElementVisitor: SyntaxVisitor {
     let configuration: CodeElementExtractor.Configuration
     let locationConverter: SourceLocationConverter
     var extractedElements: [CodeElement] = []
+    /// Conformances and protocol requirements of every declaration group in the file
+    var conformances = ConformanceIndex()
     
     init(filePath: String, sourceLines: [String], sourceContent: String, sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
         self.filePath = filePath
@@ -215,27 +243,33 @@ private class CodeElementVisitor: SyntaxVisitor {
     }
     
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        collect(node, as: .struct)
+        conformances.add(node)
+        return collect(node, as: .struct)
     }
     
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        collect(node, as: .class)
+        conformances.add(node)
+        return collect(node, as: .class)
     }
     
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        collect(node, as: .enum)
+        conformances.add(node)
+        return collect(node, as: .enum)
     }
     
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        collect(node, as: .actor)
+        conformances.add(node)
+        return collect(node, as: .actor)
     }
     
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-        collect(node, as: .protocol)
+        conformances.add(node)
+        return collect(node, as: .protocol)
     }
     
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        collect(node, as: .extension)
+        conformances.add(node)
+        return collect(node, as: .extension)
     }
     
     /// Records `node` if its type was requested; nested declarations are always visited.

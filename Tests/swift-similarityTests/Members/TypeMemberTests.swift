@@ -50,7 +50,7 @@ func testMemberExtraction() throws {
         "initializer init?(id:_:): (Int,String)throws->Void",
         "method update(with:_:): ([String:Int],Bool)asyncthrows->[String:Int]?",
         "static method make(): ()->Void",
-        "subscript subscript(index:): (Int)->String",
+        "subscript subscript(_:): (Int)->String",
         "typeAlias Map: [String:Int]",
         "method debugOnly(): ()->Void",
     ])

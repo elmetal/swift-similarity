@@ -78,7 +78,7 @@ extension TypeMember {
                 members.append(TypeMember(
                     kind: .method,
                     isStatic: hasStaticModifier(function.modifiers),
-                    name: function.name.text + argumentLabels(signature.parameterClause),
+                    name: function.name.text + argumentLabels(signature.parameterClause, unlabeledByDefault: isOperator(function.name)),
                     type: signatureType(
                         parameters: signature.parameterClause,
                         effects: signature.effectSpecifiers.map { effectText($0.asyncSpecifier, $0.throwsClause) } ?? "",
@@ -100,7 +100,7 @@ extension TypeMember {
                 members.append(TypeMember(
                     kind: .subscript,
                     isStatic: hasStaticModifier(subscriptDecl.modifiers),
-                    name: "subscript" + argumentLabels(subscriptDecl.parameterClause),
+                    name: "subscript" + argumentLabels(subscriptDecl.parameterClause, unlabeledByDefault: true),
                     type: signatureType(parameters: subscriptDecl.parameterClause, effects: "", returnType: subscriptDecl.returnClause.type)
                 ))
             } else if let enumCase = decl.as(EnumCaseDeclSyntax.self) {
@@ -133,8 +133,21 @@ extension TypeMember {
     }
 
     /// `(label:_:)` for the parameters' argument labels, as in Swift's own member names.
-    private static func argumentLabels(_ parameters: FunctionParameterClauseSyntax) -> String {
-        "(" + parameters.parameters.map { "\($0.firstName.text):" }.joined() + ")"
+    ///
+    /// Parameters of subscripts and operators have no argument label unless they are written with
+    /// two names (`unlabeledByDefault`), so `subscript(index: Int)` is `subscript(_:)`.
+    private static func argumentLabels(_ parameters: FunctionParameterClauseSyntax, unlabeledByDefault: Bool = false) -> String {
+        "(" + parameters.parameters.map { parameter in
+            let label = unlabeledByDefault && parameter.secondName == nil ? "_" : parameter.firstName.text
+            return "\(label):"
+        }.joined() + ")"
+    }
+
+    private static func isOperator(_ name: TokenSyntax) -> Bool {
+        switch name.tokenKind {
+        case .binaryOperator, .prefixOperator, .postfixOperator: return true
+        default: return false
+        }
     }
 
     private static func effectText(_ asyncSpecifier: TokenSyntax?, _ throwsClause: ThrowsClauseSyntax?) -> String {
