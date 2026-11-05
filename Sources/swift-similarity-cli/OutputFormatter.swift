@@ -32,6 +32,16 @@ struct OutputFormatter {
         )
     }
     
+    /// Writes already formatted output to `outputFile`, or to stdout (nothing for empty output).
+    func write(_ text: String, to outputFile: String?) throws {
+        if let outputFile = outputFile {
+            try (text.isEmpty ? "" : text + "\n").write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
+            printDiagnostic("Results written to: \(outputFile)")
+        } else if !text.isEmpty {
+            print(text)
+        }
+    }
+    
     /// Outputs results in text format
     func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) throws {
         let output = generateTextOutput(similarPairs: similarPairs)

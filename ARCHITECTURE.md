@@ -57,6 +57,7 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Formats results as text or JSON (`ScanResult`, `SimilarPair`, `CodeElementLocation`)
 - Optional code previews
 - With `--show-ignored`, lists the declarations skipped by `similarity-ignore` comments
+- `--format xcode` / `--format github` write one warning per declaration (`DiagnosticFormatter`)
 - With `--group`, shows groups of mutually similar declarations (`SimilarityGrouping`, complete
   linkage over the reported pairs) and then the pairs between groups
 - `--filter-name` / `--filter-code` keep the pairs involving a matching declaration (`PairFilter`
@@ -168,6 +169,13 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 
 **FileReader**
 - Recursively finds `.swift` files in a directory (hidden files are skipped)
+
+### 8. SwiftPM Plugin (`Plugins/SimilarityPlugin/`)
+
+**SimilarityPlugin**
+- Command plugin (`swift package similarity`): runs `swift-similarity-cli scan` on the source
+  directories of the `--target`s (default: every Swift source target except tests), passing the
+  other arguments through, with the package directory as the working directory
 
 ## Performance Strategy
 

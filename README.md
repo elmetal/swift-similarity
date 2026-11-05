@@ -264,6 +264,73 @@ still lists every pair. `--fail-on-duplicates` still counts pairs.
 
 On swift-syntax (functions at 0.8), 375 pairs become 109 groups plus 36 pairs between groups.
 
+## Xcode, CI and SwiftPM
+
+### Warnings in Xcode and GitHub
+`--format xcode` and `--format github` write one warning per declaration that has similar
+declarations, naming them, most similar first:
+
+```
+/path/Sources/A.swift:10:1: warning: function load is similar to function fetch (Sources/B.swift:5, 95.0%), function reload (line 30, 90.0%) [swift-similarity]
+```
+
+- `xcode` is the `path:line:column: warning:` format that Xcode shows in the editor and the issue
+  navigator when a Run Script build phase prints it. Most editors and CI logs understand it too.
+- `github` writes [workflow commands](https://docs.github.com/actions/reference/workflow-commands-for-github-actions)
+  (`::warning file=...,line=...::...`) that annotate the lines in a pull request. Paths are made
+  relative to the current directory, which is the repository root in a workflow step.
+
+All scan options apply. `--group`, `--show-ignored`, `--print` and `--advanced` do not change these
+formats. Add `--fail-on-duplicates` to fail the build or the job when anything is found.
+
+### SwiftPM command plugin
+Add the package as a dependency, then run `swift package similarity`:
+
+```swift
+// Package.swift of your package
+dependencies: [
+    .package(url: "https://github.com/elmetal/swift-similarity", branch: "main"),
+],
+```
+
+```bash
+# Every Swift source target except test targets
+swift package similarity
+
+# Some targets, with any scan option
+swift package similarity --target App --target Core --group --sort priority
+swift package similarity --format github --fail-on-duplicates
+```
+
+The plugin scans the source directories of the targets and passes every other argument to `scan`.
+It runs in the package directory, so a `similarity.toml` there applies. It only reads files; with
+`--output` inside the package, add `--allow-writing-to-package-directory`.
+
+### Xcode Run Script build phase
+With `swift-similarity-cli` installed (for example `swift build -c release` and copying
+`.build/release/swift-similarity-cli` to a directory on `PATH`), add a Run Script phase:
+
+```bash
+if command -v swift-similarity-cli >/dev/null; then
+  swift-similarity-cli scan "$SRCROOT/Sources" --format xcode
+else
+  echo "warning: swift-similarity-cli is not installed"
+fi
+```
+
+Xcode runs build scripts in a sandbox that cannot read the sources (`ENABLE_USER_SCRIPT_SANDBOXING`);
+set it to `NO` for the target, or list the source directories as input files of the phase. The
+scan reads every file on each build, so for large projects consider running it only in CI.
+
+### GitHub Actions
+```yaml
+- name: Check for similar code
+  run: swift package similarity --format github
+```
+
+Warnings show up on the changed lines of the pull request. Add `--fail-on-duplicates` to fail the
+job, or use `similarity.toml` to share the threshold and excludes with local runs.
+
 ## Using with AI assistants
 
 The text output gives each pair's similarity, priority and `file:line` locations, which an AI
