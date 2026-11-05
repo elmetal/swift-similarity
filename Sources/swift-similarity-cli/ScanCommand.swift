@@ -7,13 +7,13 @@ import swift_similarity
 struct ScanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "scan",
-        abstract: "Scan a directory for similar Swift code elements (functions, structs, classes, enums)"
+        abstract: "Scan a directory for similar Swift declarations (functions, initializers, types, protocols, extensions)"
     )
     
     @Argument(help: "Directory to scan for Swift files")
     var directory: String
     
-    @Option(name: .shortAndLong, help: "Type of code element to search (function, struct, class, enum, all)")
+    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames))")
     var elementType: String = "function"
     
     @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0)")
@@ -57,7 +57,7 @@ struct ScanCommand: AsyncParsableCommand {
             throw ValidationError("Threshold must be between 0.0 and 1.0, got \(threshold).")
         }
         guard Self.elementTypes(for: elementType) != nil else {
-            throw ValidationError("Invalid element type '\(elementType)'. Valid types: function, struct, class, enum, all")
+            throw ValidationError("Invalid element type '\(elementType)'. Valid types: \(Self.elementTypeNames)")
         }
         guard ["text", "json"].contains(format.lowercased()) else {
             throw ValidationError("Invalid output format '\(format)'. Valid formats: text, json")
@@ -148,6 +148,9 @@ struct ScanCommand: AsyncParsableCommand {
     }
     
     // MARK: - Helper Methods
+    
+    /// Accepted `--element-type` values, for help and error messages.
+    static let elementTypeNames = (CodeElementType.allCases.map(\.rawValue) + ["all"]).joined(separator: ", ")
     
     /// The element types selected by `--element-type`, or nil if the value is unknown.
     private static func elementTypes(for value: String) -> Set<CodeElementType>? {

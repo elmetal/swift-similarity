@@ -60,7 +60,7 @@ func testCodeElementTypeRawValues() {
 @Test("CodeElementExtractor basic functionality")
 func testCodeElementExtractorBasics() {
     let extractor = CodeElementExtractor()
-    #expect(extractor.configuration.elementTypes.count == 4) // All types by default
+    #expect(extractor.configuration.elementTypes == Set(CodeElementType.allCases)) // All types by default
     
     let configExtractor = CodeElementExtractor(
         configuration: CodeElementExtractor.Configuration(elementTypes: [.function])
@@ -237,4 +237,43 @@ func testLineNumbersWithMultiByteCharacters() throws {
     #expect(second?.startLine == 8)
     #expect(second?.endLine == 10)
     #expect(second?.codePreview.hasPrefix("func second()") == true)
+}
+
+@Test("Initializers, actors, protocols and extensions are extracted with their names")
+func testAdditionalElementTypes() throws {
+    let source = """
+    protocol Greeter {
+        func greet() -> String
+    }
+
+    actor Counter {
+        var value = 0
+        init(start: Int, _ step: Int) { value = start }
+        init?() { return nil }
+    }
+
+    extension Array where Element == Int {
+        func total() -> Int { reduce(0, +) }
+    }
+    """
+    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ElementTypes_\(UUID().uuidString).swift")
+    try source.write(to: url, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: url) }
+    
+    let elements = try CodeElementExtractor().extractElements(from: url.path)
+    let found = Set(elements.map { "\($0.elementType.rawValue) \($0.name)" })
+    
+    #expect(found.contains("protocol Greeter"))
+    #expect(found.contains("actor Counter"))
+    #expect(found.contains("init init(start:_:)"))
+    #expect(found.contains("init init?()"))
+    #expect(found.contains("extension Array"))
+    #expect(found.contains("function total"))
+    // A protocol requirement has no body but is still a function declaration.
+    #expect(found.contains("function greet"))
+    
+    let initOnly = try CodeElementExtractor(configuration: .init(elementTypes: [.initializer])).extractElements(from: url.path)
+    #expect(initOnly.count == 2)
+    #expect(initOnly.allSatisfy { $0.elementType == .initializer })
 }
