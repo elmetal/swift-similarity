@@ -5,13 +5,13 @@ A Swift tool for detecting similar code patterns using tree edit distance algori
 ## Installation
 
 Requires Swift 6.1 or later, on macOS 11 or later or Linux. The latest release is
-[0.0.1](https://github.com/elmetal/swift-similarity/releases/tag/0.0.1).
+[0.0.2](https://github.com/elmetal/swift-similarity/releases/tag/0.0.2).
 
 ### Command-line tool
 Build it from source and copy the binary to a directory on your `PATH`:
 
 ```bash
-git clone --branch 0.0.1 https://github.com/elmetal/swift-similarity.git
+git clone --branch 0.0.2 https://github.com/elmetal/swift-similarity.git
 cd swift-similarity
 swift build -c release
 cp .build/release/swift-similarity-cli /usr/local/bin/
@@ -26,7 +26,7 @@ To scan a Swift package without installing anything, add this package as a depen
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/elmetal/swift-similarity.git", from: "0.0.1"),
+    .package(url: "https://github.com/elmetal/swift-similarity.git", from: "0.0.2"),
 ],
 ```
 
@@ -374,7 +374,7 @@ Add the package as a dependency, then run `swift package similarity`:
 ```swift
 // Package.swift of your package
 dependencies: [
-    .package(url: "https://github.com/elmetal/swift-similarity.git", from: "0.0.1"),
+    .package(url: "https://github.com/elmetal/swift-similarity.git", from: "0.0.2"),
 ],
 ```
 
