@@ -91,6 +91,9 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Report groups of declarations that are all similar to each other instead of every pair; pairs between groups are listed after them (default: off)")
     var group: Bool?
     
+    @Option(name: .long, help: ArgumentHelp("Report at most this many pairs, the most similar first (0 for no limit); the number of pairs found is still shown, and --fail-on-duplicates still counts them all (default: \(ScanSettings.defaultMaxPairs))", valueName: "count"))
+    var maxPairs: Int?
+    
     mutating func validate() throws {
         for path in paths {
             do {
@@ -135,6 +138,9 @@ struct ScanCommand: AsyncParsableCommand {
         }
         guard settings.renameCost >= 0, settings.renameCost.isFinite else {
             throw ValidationError("Rename cost must be a number 0 or more, got \(settings.renameCost).")
+        }
+        guard settings.maxPairs >= 0 else {
+            throw ValidationError("Maximum pairs must be 0 (no limit) or more, got \(settings.maxPairs).")
         }
         guard threads >= 0 else {
             throw ValidationError("Number of threads must be 0 (automatic) or more, got \(threads).")
@@ -211,6 +217,7 @@ struct ScanCommand: AsyncParsableCommand {
                 printDiagnostic("Found \(elements.count) \(elementDescription)")
             }
             
+            let maxPairs = settings.maxPairs > 0 ? settings.maxPairs : nil
             let treeScanner = SimilarityScanner(
                 maxConcurrency: threads,
                 progressHandler: progress ? Self.printProgress : nil,
@@ -219,21 +226,28 @@ struct ScanCommand: AsyncParsableCommand {
             let result: SimilarityScanner.Result
             switch compareMode {
             case .tree:
-                result = try await treeScanner.scan(elements, threshold: threshold)
+                result = try await treeScanner.scan(elements, threshold: threshold, maxPairs: maxPairs, including: pairFilter.predicate)
             case .members:
-                result = MemberSimilarityScanner().scan(elements, threshold: threshold, conformances: extraction.conformances)
+                result = MemberSimilarityScanner().scan(
+                    elements, threshold: threshold, conformances: extraction.conformances,
+                    maxPairs: maxPairs, including: pairFilter.predicate
+                )
             case .witnesses:
-                result = try await WitnessSimilarityScanner(scanner: treeScanner)
-                    .scan(extraction.witnessCandidates, threshold: threshold, conformances: extraction.conformances)
+                result = try await WitnessSimilarityScanner(scanner: treeScanner).scan(
+                    extraction.witnessCandidates, threshold: threshold, conformances: extraction.conformances,
+                    maxPairs: maxPairs, including: pairFilter.predicate
+                )
                 printDiagnostic("Found \(result.statistics.elementCount) implementations of requirements of protocols declared in the scanned files (\(extraction.witnessCandidates.count) members with a body)")
             }
-            let unsortedPairs = pairFilter.apply(to: result.pairs).map { ($0.first, $0.second, $0.similarity) }
-            let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
+            let similarPairs = SimilarityRanking.sorted(result.pairs.map { ($0.first, $0.second, $0.similarity) }, by: sortOrder)
             
             if pairFilter.isEmpty {
-                printDiagnostic("Found \(similarPairs.count) similar pairs")
+                printDiagnostic("Found \(result.matchingPairCount) similar pairs")
             } else {
-                printDiagnostic("Found \(result.pairs.count) similar pairs, \(similarPairs.count) matching the filter")
+                printDiagnostic("Found \(result.statistics.similarPairs) similar pairs, \(result.matchingPairCount) matching the filter")
+            }
+            if result.omittedPairCount > 0 {
+                printDiagnostic("Reporting the \(similarPairs.count) most similar pairs; \(result.omittedPairCount) more are not shown (--max-pairs \(settings.maxPairs); 0 for no limit). Consider --group, --exclude for generated code, or a higher --threshold or --min-lines.")
             }
             if showIgnored && !settings.ignoreDirectives {
                 printDiagnostic("Note: --show-ignored lists nothing because similarity-ignore comments are not honored (--no-ignore-directives)")
@@ -257,7 +271,8 @@ struct ScanCommand: AsyncParsableCommand {
                 printCodePreviews: showCode,
                 sortOrder: sortOrder,
                 ignored: showIgnored ? extraction.ignored : nil,
-                grouped: settings.group
+                grouped: settings.group,
+                omittedPairCount: result.omittedPairCount
             )
             
             if let style = DiagnosticFormatter.Style(rawValue: format) {
@@ -280,7 +295,7 @@ struct ScanCommand: AsyncParsableCommand {
                 try formatter.outputText(similarPairs: similarPairs, to: output)
             }
             
-            pairCount = similarPairs.count
+            pairCount = result.matchingPairCount
         } catch {
             printDiagnostic("Error: \(error.localizedDescription)")
             throw ExitCode.failure
@@ -326,7 +341,8 @@ struct ScanCommand: AsyncParsableCommand {
             failOnDuplicates: failOnDuplicates,
             renameCost: renameCost,
             compare: compare,
-            group: group
+            group: group,
+            maxPairs: maxPairs
         )
     }
     
@@ -350,6 +366,7 @@ struct ScanCommand: AsyncParsableCommand {
         renameCost = settings.renameCost
         compare = settings.compare
         group = settings.group
+        maxPairs = settings.maxPairs
     }
     
     /// Accepted `--format` values.
@@ -420,7 +437,7 @@ struct ScanCommand: AsyncParsableCommand {
             String(format: "%.1f%%", stats.totalPairs > 0 ? Double(count) / Double(stats.totalPairs) * 100 : 0)
         }
         printDiagnostic("\n=== Scan Statistics ===")
-        printDiagnostic("Elements: \(stats.elementCount)")
+        printDiagnostic("Elements: \(stats.elementCount) (\(stats.distinctTreeCount) distinct trees)")
         printDiagnostic("Threads: \(stats.workerCount)")
         printDiagnostic("Total pairs: \(stats.totalPairs)")
         printDiagnostic("  Nested (skipped): \(stats.nestedPairs) (\(percent(stats.nestedPairs)))")
@@ -434,6 +451,9 @@ struct ScanCommand: AsyncParsableCommand {
         case .members:
             printDiagnostic("  Not comparable (different groups, too few members) or ruled out by member counts: \(stats.pairsRuledOutByUpperBound) (\(percent(stats.pairsRuledOutByUpperBound)))")
             printDiagnostic("  Compared by members: \(stats.pairsCompared) (\(percent(stats.pairsCompared)))")
+        }
+        if stats.identicalPairs > 0 {
+            printDiagnostic("  Identical trees (no comparison): \(stats.identicalPairs) (\(percent(stats.identicalPairs)))")
         }
         printDiagnostic("Similar pairs: \(stats.similarPairs)")
         printDiagnostic("Fingerprint time: \(String(format: "%.3f", stats.fingerprintTime))s")

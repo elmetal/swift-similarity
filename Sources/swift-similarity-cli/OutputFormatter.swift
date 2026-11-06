@@ -18,6 +18,8 @@ struct OutputFormatter {
     let ignored: [IgnoredDeclaration]?
     /// Report groups of mutually similar declarations (`--group`)
     let grouped: Bool
+    /// Matching pairs left out because of `--max-pairs`
+    let omittedPairCount: Int
     
     /// Computes the additional metrics for a pair when `--advanced` is set.
     /// They are reported alongside the TSED score and do not affect which pairs are found.
@@ -58,7 +60,8 @@ struct OutputFormatter {
     func outputJSON(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) throws {
         let result = ScanResult(
             summary: ScanResult.Summary(
-                totalPairs: similarPairs.count,
+                totalPairs: similarPairs.count + omittedPairCount,
+                omittedPairs: omittedPairCount,
                 elementType: elementType,
                 threshold: threshold,
                 compare: compare,
@@ -234,7 +237,10 @@ struct OutputFormatter {
         } else {
             elementType.lowercased() == "all" ? "Elements (All Types)" : "\(elementType.capitalized) Elements"
         }
-        output += "Similar \(elementDescription) Found: \(similarPairs.count)\n"
+        output += "Similar \(elementDescription) Found: \(similarPairs.count + omittedPairCount)\n"
+        if omittedPairCount > 0 {
+            output += "Showing the \(similarPairs.count) most similar (--max-pairs); \(omittedPairCount) more are not shown\n"
+        }
         output += "Threshold: \(threshold)\n"
         switch compare {
         case "members":

@@ -36,8 +36,19 @@ public struct PairFilter: Sendable, Equatable {
         return true
     }
 
+    /// Whether a pair is kept: at least one of its declarations matches.
+    public func includes(_ first: CodeElement, _ second: CodeElement) -> Bool {
+        isEmpty || matches(first) || matches(second)
+    }
+
+    /// The predicate for `SimilarityScanner.scan(_:threshold:maxPairs:including:)`, nil when the
+    /// filter keeps every pair.
+    public var predicate: SimilarityScanner.PairPredicate? {
+        isEmpty ? nil : { @Sendable [self] in includes($0, $1) }
+    }
+
     /// The pairs in which at least one declaration matches, in their original order.
     public func apply(to pairs: [SimilarityScanner.Pair]) -> [SimilarityScanner.Pair] {
-        isEmpty ? pairs : pairs.filter { matches($0.first) || matches($0.second) }
+        isEmpty ? pairs : pairs.filter { includes($0.first, $0.second) }
     }
 }

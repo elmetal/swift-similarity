@@ -45,6 +45,15 @@ public struct PreparedTree: Sendable {
     /// Label ids in postorder
     var postorder: [Int] { indexed.labels }
 
+    /// Equal for identical trees (same labels in the same shape) and only for them: the postorder
+    /// labels and leftmost leaves determine an ordered labeled tree.
+    var identityKey: IdentityKey { IdentityKey(labels: indexed.labels, leftmost: indexed.leftmost) }
+
+    struct IdentityKey: Hashable, Sendable {
+        let labels: [Int]
+        let leftmost: [Int]
+    }
+
     /// - Parameters:
     ///   - root: The tree to prepare
     ///   - labels: Assigns label ids; share it between all trees that are compared with each other

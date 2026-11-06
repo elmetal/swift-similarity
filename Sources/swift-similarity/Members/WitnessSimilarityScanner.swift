@@ -108,18 +108,34 @@ public struct WitnessSimilarityScanner: Sendable {
 
     /// Finds every pair of witnesses of the same requirement whose bodies have a TSED score of at
     /// least `threshold`, most similar first, ties by requirement and then candidate order.
-    /// Statistics count only the pairs within each requirement.
-    public func scan(_ candidates: [WitnessCandidate], threshold: Double, conformances: ConformanceIndex) async throws -> SimilarityScanner.Result {
+    /// Statistics count only the pairs within each requirement. `maxPairs` and `include` select the
+    /// reported pairs as in `SimilarityScanner.scan`.
+    public func scan(
+        _ candidates: [WitnessCandidate],
+        threshold: Double,
+        conformances: ConformanceIndex,
+        maxPairs: Int? = nil,
+        including include: SimilarityScanner.PairPredicate? = nil
+    ) async throws -> SimilarityScanner.Result {
         let groups = Self.witnessesByRequirement(candidates, conformances: conformances)
         var pairs: [SimilarityScanner.Pair] = []
         var elementCount = 0, totalPairs = 0, nested = 0, ruledOut = 0, compared = 0
+        var distinctTrees = 0, identical = 0, similar = 0, matching = 0
         var fingerprintTime = 0.0, comparisonTime = 0.0
         for group in groups {
             elementCount += group.count
-            guard group.count >= 2 else { continue }
-            let result = try await scanner.scan(group, threshold: threshold)
+            guard group.count >= 2 else {
+                distinctTrees += group.count
+                continue
+            }
+            // Each requirement keeps at most `maxPairs`, so the most similar overall are among them.
+            let result = try await scanner.scan(group, threshold: threshold, maxPairs: maxPairs, including: include)
             pairs.append(contentsOf: result.pairs)
+            matching += result.matchingPairCount
             let statistics = result.statistics
+            distinctTrees += statistics.distinctTreeCount
+            identical += statistics.identicalPairs
+            similar += statistics.similarPairs
             totalPairs += statistics.totalPairs
             nested += statistics.nestedPairs
             ruledOut += statistics.pairsRuledOutByUpperBound
@@ -130,18 +146,21 @@ public struct WitnessSimilarityScanner: Sendable {
         // Stable: requirement order, then the scanner's order within each requirement.
         let ordered = pairs.enumerated().sorted { ($1.element.similarity, $0.offset) < ($0.element.similarity, $1.offset) }.map(\.element)
         return SimilarityScanner.Result(
-            pairs: ordered,
+            pairs: Array(ordered.prefix(maxPairs ?? ordered.count)),
             statistics: ScanStatistics(
                 elementCount: elementCount,
                 totalPairs: totalPairs,
                 nestedPairs: nested,
                 pairsRuledOutByUpperBound: ruledOut,
                 pairsCompared: compared,
-                similarPairs: ordered.count,
+                similarPairs: similar,
                 workerCount: scanner.workerCount,
                 fingerprintTime: fingerprintTime,
-                comparisonTime: comparisonTime
-            )
+                comparisonTime: comparisonTime,
+                distinctTreeCount: distinctTrees,
+                identicalPairs: identical
+            ),
+            matchingPairCount: matching
         )
     }
 }

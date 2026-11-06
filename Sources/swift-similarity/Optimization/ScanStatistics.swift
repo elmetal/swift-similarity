@@ -4,7 +4,11 @@ import Foundation
 
 /// Pair counts and timings of a `SimilarityScanner` scan, reported by `scan --stats`.
 ///
-/// Every pair is accounted for once: `totalPairs == nestedPairs + pairsRuledOutByUpperBound + pairsCompared`.
+/// Every pair is accounted for once:
+/// `totalPairs == nestedPairs + pairsRuledOutByUpperBound + pairsCompared + identicalPairs`.
+///
+/// Elements with identical trees are compared once per class (see `SimilarityScanner`), but each
+/// pair is still counted under the step that decided it.
 public struct ScanStatistics: Sendable, Equatable {
     /// Number of elements scanned
     public let elementCount: Int
@@ -24,6 +28,10 @@ public struct ScanStatistics: Sendable, Equatable {
     public let fingerprintTime: Double
     /// Seconds spent comparing pairs, including sorting the results
     public let comparisonTime: Double
+    /// Number of distinct trees: elements with identical trees count once
+    public let distinctTreeCount: Int
+    /// Pairs of elements with identical trees, which score 1.0 without a comparison
+    public let identicalPairs: Int
 
     public init(
         elementCount: Int,
@@ -34,7 +42,9 @@ public struct ScanStatistics: Sendable, Equatable {
         similarPairs: Int,
         workerCount: Int,
         fingerprintTime: Double,
-        comparisonTime: Double
+        comparisonTime: Double,
+        distinctTreeCount: Int? = nil,
+        identicalPairs: Int = 0
     ) {
         self.elementCount = elementCount
         self.totalPairs = totalPairs
@@ -45,6 +55,8 @@ public struct ScanStatistics: Sendable, Equatable {
         self.workerCount = workerCount
         self.fingerprintTime = fingerprintTime
         self.comparisonTime = comparisonTime
+        self.distinctTreeCount = distinctTreeCount ?? elementCount
+        self.identicalPairs = identicalPairs
     }
 
     /// Seconds for the whole scan
