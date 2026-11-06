@@ -37,7 +37,15 @@ public struct MemberSimilarityScanner: Sendable {
     /// `minimumMemberCount` members, nested pairs and pairs from different groups are skipped.
     /// `statistics.pairsRuledOutByUpperBound` counts the pairs skipped without comparing members:
     /// those from different groups, with too few members, or whose member counts alone rule them out.
-    public func scan(_ elements: [CodeElement], threshold: Double, conformances: ConformanceIndex? = nil) -> SimilarityScanner.Result {
+    ///
+    /// `maxPairs` and `include` select the reported pairs as in `SimilarityScanner.scan`.
+    public func scan(
+        _ elements: [CodeElement],
+        threshold: Double,
+        conformances: ConformanceIndex? = nil,
+        maxPairs: Int? = nil,
+        including include: SimilarityScanner.PairPredicate? = nil
+    ) -> SimilarityScanner.Result {
         let startTime = ProcessInfo.processInfo.systemUptime
         let comparedMembers = elements.map { element in
             conformances.map { $0.membersExcludingWitnesses(of: element) } ?? element.members
@@ -100,9 +108,11 @@ public struct MemberSimilarityScanner: Sendable {
             fingerprintTime: 0,
             comparisonTime: ProcessInfo.processInfo.systemUptime - startTime
         )
+        let matching = include.map { include in indexedPairs.filter { include(elements[$0.index1], elements[$0.index2]) } } ?? indexedPairs
         return SimilarityScanner.Result(
-            pairs: indexedPairs.map { (elements[$0.index1], elements[$0.index2], $0.similarity) },
-            statistics: statistics
+            pairs: matching.prefix(maxPairs ?? matching.count).map { (elements[$0.index1], elements[$0.index2], $0.similarity) },
+            statistics: statistics,
+            matchingPairCount: matching.count
         )
     }
 

@@ -63,7 +63,10 @@ struct ScanResult: Codable {
     }
     
     struct Summary: Codable {
+        /// Similar pairs found (matching the filters), including those not listed
         let totalPairs: Int
+        /// Pairs found but not listed in `similarPairs` because of `--max-pairs`
+        let omittedPairs: Int
         let elementType: String
         let threshold: Double
         /// What was compared: "tree" (TSED), "members" or "witnesses" (TSED of bodies)

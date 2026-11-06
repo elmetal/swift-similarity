@@ -40,7 +40,7 @@ func testScannerStatistics() async throws {
     
     #expect(stats.elementCount == 30)
     #expect(stats.totalPairs == 30 * 29 / 2)
-    #expect(stats.nestedPairs + stats.pairsRuledOutByUpperBound + stats.pairsCompared == stats.totalPairs)
+    #expect(stats.nestedPairs + stats.pairsRuledOutByUpperBound + stats.pairsCompared + stats.identicalPairs == stats.totalPairs)
     #expect(stats.similarPairs == result.pairs.count)
     #expect(stats.similarPairs <= stats.pairsCompared)
     #expect(stats.workerCount == 3)

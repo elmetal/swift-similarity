@@ -8,10 +8,14 @@ import Foundation
 /// with `SimilarityCalculator`.
 /// 1. Each element's tree is prepared once (`PreparedTree`): label histogram, size, and what the
 ///    tree edit distance and its lower bounds need, with labels interned to integers.
-/// 2. Pairs of a declaration and one nested inside it are skipped.
-/// 3. Pairs whose TSED upper bound (from the histograms) is below the threshold are skipped.
-/// 4. The remaining pairs get a bounded TSED computation, in parallel on every core.
-/// 5. Results are sorted by score, highest first, ties in input order.
+/// 2. Elements with identical trees form one class (copies, typical of generated code). Copies
+///    score 1.0 with each other, and every copy has the same score with any other tree, so only
+///    one tree per class (its first element) is compared below. The scores stay exact.
+/// 3. Pairs of a declaration and one nested inside it are skipped.
+/// 4. Pairs whose TSED upper bound (from the histograms) is below the threshold are skipped.
+/// 5. The remaining pairs get a bounded TSED computation, in parallel on every core.
+/// 6. Results are sorted by score, highest first, ties in input order. With `maxPairs`, only the
+///    first pairs are kept, in memory proportional to that limit, however many pairs match.
 public struct SimilarityScanner: Sendable {
 
     // MARK: - Types
@@ -47,11 +51,26 @@ public struct SimilarityScanner: Sendable {
 
     /// What a scan found and how much work the filters saved.
     public struct Result: Sendable {
-        /// Similar pairs, highest score first, ties in input order
+        /// Similar pairs, highest score first, ties in input order; at most `maxPairs` of them
         public let pairs: [Pair]
         /// Pair counts and timings
         public let statistics: ScanStatistics
+        /// Similar pairs accepted by the scan's `including` predicate, including those left out of
+        /// `pairs` because of `maxPairs`
+        public let matchingPairCount: Int
+
+        public init(pairs: [Pair], statistics: ScanStatistics, matchingPairCount: Int? = nil) {
+            self.pairs = pairs
+            self.statistics = statistics
+            self.matchingPairCount = matchingPairCount ?? pairs.count
+        }
+
+        /// Matching pairs left out because of `maxPairs`
+        public var omittedPairCount: Int { matchingPairCount - pairs.count }
     }
+
+    /// Whether a similar pair is reported (see `scan(_:threshold:maxPairs:including:)`).
+    public typealias PairPredicate = @Sendable (CodeElement, CodeElement) -> Bool
 
     // MARK: - Properties
 
@@ -86,24 +105,54 @@ public struct SimilarityScanner: Sendable {
     // MARK: - Public Interface
 
     /// Finds every pair of `elements` whose TSED score is at least `threshold`.
-    public func scan(_ elements: [CodeElement], threshold: Double) async throws -> Result {
+    /// - Parameters:
+    ///   - maxPairs: Keep only this many pairs (the most similar, ties in input order); nil keeps
+    ///     all. `Result.matchingPairCount` still counts every matching pair.
+    ///   - include: Only pairs it accepts are reported and count as matching; nil accepts all.
+    ///     Applied before `maxPairs`, so the limit counts reported pairs only.
+    public func scan(
+        _ elements: [CodeElement],
+        threshold: Double,
+        maxPairs: Int? = nil,
+        including include: PairPredicate? = nil
+    ) async throws -> Result {
         let startTime = ProcessInfo.processInfo.systemUptime
         let trees = prepare(elements, startTime: startTime)
+        let classes = Self.identicalClasses(trees)
         let fingerprintTime = ProcessInfo.processInfo.systemUptime - startTime
 
         let workerCount = workerCount
         var counts = PairCounts()
-        var pairs: [IndexedPair] = []
+        var blocks: [Block] = []
 
-        if elements.count >= 2 {
-            // Element order[p] is compared with every element after it in `order`. Elements are
-            // ordered by size, largest first, and each such row is cut into tasks of roughly equal
-            // estimated cost (product of the tree sizes, the shape of the edit distance cost). Tasks
-            // are submitted heaviest first, so one large pair does not keep a long run of other work
-            // on a single core.
-            let order = elements.indices.sorted { trees[$0].nodeCount > trees[$1].nodeCount }
-            let tasks = Self.makeTasks(sizes: order.map { trees[$0].nodeCount }, workerCount: workerCount)
+        // Copies of each other: identical trees score 1.0.
+        for (index, members) in classes.enumerated() where members.count >= 2 {
+            var identical = 0
+            for a in 0..<members.count {
+                for b in (a + 1)..<members.count {
+                    if elements[members[a]].isNested(with: elements[members[b]]) {
+                        counts.nested += 1
+                    } else {
+                        identical += 1
+                    }
+                }
+            }
+            counts.identical += identical
+            if identical > 0 {
+                blocks.append(Block(similarity: 1.0, class1: index, class2: index))
+            }
+        }
+
+        if classes.count >= 2 {
+            // Class order[p] is compared with every class after it in `order`. Classes are
+            // ordered by tree size, largest first, and each such row is cut into tasks of roughly
+            // equal estimated cost (product of the tree sizes, the shape of the edit distance
+            // cost). Tasks are submitted heaviest first, so one large pair does not keep a long run
+            // of other work on a single core.
+            let order = classes.indices.sorted { trees[classes[$0][0]].nodeCount > trees[classes[$1][0]].nodeCount }
+            let tasks = Self.makeTasks(sizes: order.map { trees[classes[$0][0]].nodeCount }, workerCount: workerCount)
             let comparisonStart = ProcessInfo.processInfo.systemUptime
+            var pairsFound = counts.identical
             report(.comparing, completed: 0, total: tasks.count, pairsFound: 0, since: comparisonStart)
 
             try await withThrowingTaskGroup(of: TaskResult.self) { group in
@@ -114,27 +163,24 @@ public struct SimilarityScanner: Sendable {
                     nextTask += 1
                     let costs = costs
                     group.addTask {
-                        Self.compare(task, order: order, elements: elements, trees: trees, threshold: threshold, costs: costs)
+                        Self.compare(task, order: order, classes: classes, elements: elements, trees: trees, threshold: threshold, costs: costs)
                     }
                 }
                 for _ in 0..<workerCount { submitNext() }
 
                 var completedTasks = 0
                 for try await result in group {
-                    pairs.append(contentsOf: result.pairs)
+                    blocks.append(contentsOf: result.blocks)
                     counts.add(result.counts)
+                    pairsFound += result.counts.similar
                     completedTasks += 1
-                    report(.comparing, completed: completedTasks, total: tasks.count, pairsFound: pairs.count, since: comparisonStart)
+                    report(.comparing, completed: completedTasks, total: tasks.count, pairsFound: pairsFound, since: comparisonStart)
                     submitNext()
                 }
             }
         }
 
-        // Completion order varies between runs; return a stable order instead: most similar first,
-        // ties by position in `elements`.
-        pairs.sort {
-            ($0.similarity, $1.index1, $1.index2) > ($1.similarity, $0.index1, $0.index2)
-        }
+        let selection = Self.selectPairs(from: blocks, classes: classes, elements: elements, maxPairs: maxPairs, including: include)
 
         let totalTime = ProcessInfo.processInfo.systemUptime - startTime
         let statistics = ScanStatistics(
@@ -143,15 +189,107 @@ public struct SimilarityScanner: Sendable {
             nestedPairs: counts.nested,
             pairsRuledOutByUpperBound: counts.ruledOutByUpperBound,
             pairsCompared: counts.compared,
-            similarPairs: pairs.count,
+            similarPairs: selection.similarPairCount,
             workerCount: workerCount,
             fingerprintTime: fingerprintTime,
-            comparisonTime: totalTime - fingerprintTime
+            comparisonTime: totalTime - fingerprintTime,
+            distinctTreeCount: classes.count,
+            identicalPairs: counts.identical
         )
         return Result(
-            pairs: pairs.map { (elements[$0.index1], elements[$0.index2], $0.similarity) },
-            statistics: statistics
+            pairs: selection.pairs.map { (elements[$0.index1], elements[$0.index2], $0.similarity) },
+            statistics: statistics,
+            matchingPairCount: selection.matchingPairCount
         )
+    }
+
+    // MARK: - Identical Trees
+
+    /// Element indices grouped by identical trees, each class in input order, classes in order of
+    /// their first element.
+    static func identicalClasses(_ trees: [PreparedTree]) -> [[Int]] {
+        var classes: [[Int]] = []
+        var classIndex: [PreparedTree.IdentityKey: Int] = [:]
+        for (index, tree) in trees.enumerated() {
+            let key = tree.identityKey
+            if let existing = classIndex[key] {
+                classes[existing].append(index)
+            } else {
+                classIndex[key] = classes.count
+                classes.append([index])
+            }
+        }
+        return classes
+    }
+
+    /// Every pair between two classes (or within one) has the same score.
+    struct Block: Sendable {
+        let similarity: Double
+        /// Index of the class whose first element comes first; equal to `class2` for the pairs
+        /// within one class
+        let class1: Int
+        let class2: Int
+    }
+
+    /// The pairs of `blocks` that are not nested and that `include` accepts, most similar first,
+    /// ties by position in `elements`; at most `maxPairs` of them, holding no more than twice that
+    /// many in memory at once.
+    static func selectPairs(
+        from blocks: [Block],
+        classes: [[Int]],
+        elements: [CodeElement],
+        maxPairs: Int?,
+        including include: PairPredicate?
+    ) -> (pairs: [IndexedPair], similarPairCount: Int, matchingPairCount: Int) {
+        let blocks = blocks.sorted { $0.similarity > $1.similarity }
+        let byPosition: (IndexedPair, IndexedPair) -> Bool = { ($0.index1, $0.index2) < ($1.index1, $1.index2) }
+        var kept: [IndexedPair] = []
+        var similar = 0
+        var matching = 0
+        var start = 0
+        while start < blocks.count {
+            // One score at a time: pairs with equal scores are ordered by position.
+            var end = start
+            while end < blocks.count && blocks[end].similarity == blocks[start].similarity { end += 1 }
+            let remaining = maxPairs.map { max(0, $0 - kept.count) } ?? Int.max
+            var level: [IndexedPair] = []
+            func add(_ a: Int, _ b: Int, _ similarity: Double) {
+                let (index1, index2) = a < b ? (a, b) : (b, a)
+                guard !elements[index1].isNested(with: elements[index2]) else { return }
+                similar += 1
+                if let include, !include(elements[index1], elements[index2]) { return }
+                matching += 1
+                guard remaining > 0 else { return }
+                level.append(IndexedPair(index1: index1, index2: index2, similarity: similarity))
+                if remaining < Int.max / 2 && level.count >= 2 * remaining {
+                    level.sort(by: byPosition)
+                    level.removeLast(level.count - remaining)
+                }
+            }
+            for block in blocks[start..<end] {
+                let members1 = classes[block.class1]
+                if block.class1 == block.class2 {
+                    for a in 0..<members1.count {
+                        for b in (a + 1)..<members1.count {
+                            add(members1[a], members1[b], block.similarity)
+                        }
+                    }
+                } else {
+                    for a in members1 {
+                        for b in classes[block.class2] {
+                            add(a, b, block.similarity)
+                        }
+                    }
+                }
+            }
+            level.sort(by: byPosition)
+            if level.count > remaining {
+                level.removeLast(level.count - remaining)
+            }
+            kept.append(contentsOf: level)
+            start = end
+        }
+        return (kept, similar, matching)
     }
 
     /// Finds every pair of `elements` whose TSED score is at least `threshold`, highest score first.
@@ -214,7 +352,7 @@ public struct SimilarityScanner: Sendable {
     // MARK: - Private Implementation
 
     /// A similar pair, by position in the input (`index1 < index2`)
-    private struct IndexedPair: Sendable {
+    struct IndexedPair: Sendable {
         let index1: Int
         let index2: Int
         let similarity: Double
@@ -225,16 +363,21 @@ public struct SimilarityScanner: Sendable {
         var nested = 0
         var ruledOutByUpperBound = 0
         var compared = 0
+        var identical = 0
+        /// Pairs found similar by comparing (not counting `identical`), for progress reports
+        var similar = 0
 
         mutating func add(_ other: PairCounts) {
             nested += other.nested
             ruledOutByUpperBound += other.ruledOutByUpperBound
             compared += other.compared
+            identical += other.identical
+            similar += other.similar
         }
     }
 
     private struct TaskResult: Sendable {
-        let pairs: [IndexedPair]
+        let blocks: [Block]
         let counts: PairCounts
     }
 
@@ -249,46 +392,63 @@ public struct SimilarityScanner: Sendable {
         return trees
     }
 
-    /// Compares element `order[task.row]` with the elements at `task.positions` in `order`.
+    /// Compares class `order[task.row]` with the classes at `task.positions` in `order`, through
+    /// the first element of each class. Counts are per pair of elements.
     private static func compare(
         _ task: PairTask,
         order: [Int],
+        classes: [[Int]],
         elements: [CodeElement],
         trees: [PreparedTree],
         threshold: Double,
         costs: APTED.OperationCosts
     ) -> TaskResult {
         let calculator = SimilarityCalculator(configuration: .init(aptedCosts: costs))
-        var pairs: [IndexedPair] = []
+        var blocks: [Block] = []
         var counts = PairCounts()
-        let first = order[task.row]
+        let row = order[task.row]
         for position in task.positions {
-            let second = order[position]
-            let (index1, index2) = first < second ? (first, second) : (second, first)
+            let other = order[position]
+            let (class1, class2) = classes[row][0] < classes[other][0] ? (row, other) : (other, row)
+            let members1 = classes[class1]
+            let members2 = classes[class2]
+            let first = members1[0]
+            let second = members2[0]
+            let pairCount = members1.count * members2.count
 
             // A declaration and one nested inside it share code; never report them as similar.
-            guard !elements[index1].isNested(with: elements[index2]) else {
+            // Without copies, this is checked first, since it is cheaper than the bound.
+            if pairCount == 1 && elements[first].isNested(with: elements[second]) {
                 counts.nested += 1
                 continue
             }
             // Exact prefilter: the TSED upper bound from label histograms. Unlike heuristic
             // filters this never rejects a pair that would match.
-            guard trees[index1].tsedUpperBound(to: trees[index2], costs: costs) >= threshold else {
-                counts.ruledOutByUpperBound += 1
+            guard trees[first].tsedUpperBound(to: trees[second], costs: costs) >= threshold else {
+                counts.ruledOutByUpperBound += pairCount
                 continue
+            }
+            var comparedPairs = 1
+            if pairCount > 1 {
+                var nested = 0
+                for a in members1 {
+                    for b in members2 where elements[a].isNested(with: elements[b]) {
+                        nested += 1
+                    }
+                }
+                counts.nested += nested
+                comparedPairs = pairCount - nested
+                guard comparedPairs > 0 else { continue }
             }
             // TSED: tree edit distance normalized by the larger tree size (skipped when a cheaper
             // exact lower bound on the distance already rules the pair out)
-            counts.compared += 1
-            if let similarity = calculator.similarity(
-                between: trees[index1],
-                and: trees[index2],
-                atLeast: threshold
-            ) {
-                pairs.append(IndexedPair(index1: index1, index2: index2, similarity: similarity))
+            counts.compared += comparedPairs
+            if let similarity = calculator.similarity(between: trees[first], and: trees[second], atLeast: threshold) {
+                blocks.append(Block(similarity: similarity, class1: class1, class2: class2))
+                counts.similar += comparedPairs
             }
         }
-        return TaskResult(pairs: pairs, counts: counts)
+        return TaskResult(blocks: blocks, counts: counts)
     }
 
     private func report(_ phase: Progress.Phase, completed: Int, total: Int, pairsFound: Int, since startTime: Double) {

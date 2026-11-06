@@ -122,16 +122,20 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - `PreparedTree` computes the same bound from interned, sorted histograms; the scanner uses that one
 
 **SimilarityScanner**
-- One exact pipeline: prepare each element's tree once (in parallel), skip nested pairs, skip pairs
-  whose TSED upper bound is below the threshold, then compute the bounded TSED via
-  `SimilarityCalculator` in parallel
-- Splits the pairs into cost-balanced tasks run on every core (see Scheduling below); results are
-  sorted by score, ties in input order
+- One exact pipeline: prepare each element's tree once (in parallel), group elements with identical
+  trees into classes (`PreparedTree.identityKey`), skip nested pairs, skip pairs whose TSED upper
+  bound is below the threshold, then compute the bounded TSED via `SimilarityCalculator` in parallel
+- Only the first element of each class is compared: copies score 1.0 with each other and share
+  every other score, so each comparison yields a block of pairs (`Block`) with one score
+- Splits the class pairs into cost-balanced tasks run on every core (see Scheduling below)
+- `selectPairs` expands the blocks into pairs, sorted by score, ties in input order, skipping
+  nested pairs and those the `including` predicate rejects; with `maxPairs` it keeps only the first
+  pairs, holding at most twice that many at once, and still counts every matching pair
 - Reports progress per phase (fingerprinting, comparing) through an optional handler
 
 **ScanStatistics**
-- How many pairs were nested, ruled out by the upper bound or compared with TSED, the number of
-  similar pairs, and the time of each phase; reported by `scan --stats`
+- How many pairs were nested, ruled out by the upper bound, compared with TSED or identical, the
+  number of distinct trees and similar pairs, and the time of each phase; reported by `scan --stats`
 
 ### 5b. Member Comparison (`Sources/swift-similarity/Members/`)
 

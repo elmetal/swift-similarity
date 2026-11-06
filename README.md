@@ -85,7 +85,7 @@ swift run swift-similarity-cli scan Sources/ --filter-code URLSession
 
 A pair is reported when either of its declarations matches; with both options, one declaration
 must match both. The filters only select which pairs are reported: every pair is still compared,
-scores are unchanged, and `--fail-on-duplicates` counts the reported pairs.
+scores are unchanged, and `--fail-on-duplicates` counts the matching pairs.
 
 ### Listing ignored declarations
 ```bash
@@ -133,6 +133,7 @@ fail_on_duplicates = true              # --fail-on-duplicates / --no-fail-on-dup
 rename_cost = 1.0                      # --rename-cost (default 1.0)
 compare = "members"                    # --compare: "tree" (default), "members" or "witnesses"
 group = true                           # --group / --no-group (default false)
+max_pairs = 0                          # --max-pairs (default 10000; 0 for no limit)
 ```
 
 `no_ignore_directives = true` is accepted as well, as the opposite of `ignore_directives`. Each
@@ -270,6 +271,20 @@ JSON (`requirement`, `advice`), Xcode and GitHub output.
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many
 pairs were skipped by the exact filters and how long each phase took.
 
+Declarations with identical syntax trees, common in generated code, are compared once: copies
+score 100% with each other, and every copy scores the same against any other declaration. The
+results are the same as comparing every pair. On swift-syntax's `SwiftSyntax` sources,
+`--compare witnesses` finds 135,048 pairs among 1,399 implementations with only 99 distinct
+trees, in 2 seconds instead of almost 5 minutes.
+
+### Limiting the number of pairs
+At most 10,000 pairs are reported, the most similar first, so that a codebase with many copies
+does not produce a report nobody can read. The number of pairs found is still shown, filters
+(`--filter-name`, `--filter-code`) apply before the limit, and `--fail-on-duplicates` counts every
+matching pair. `--max-pairs N` changes the limit, and `--max-pairs 0` removes it (`max_pairs` in
+`similarity.toml`). When the limit is reached, `--group`, `--exclude` for generated code, or a
+higher `--threshold` or `--min-lines` usually help more than a higher limit.
+
 ### Advanced options
 ```bash
 # Show progress and detailed statistics
@@ -330,7 +345,7 @@ Groups are sorted by their most similar pair, or with `--sort priority` by
 **(declarations − 1) × lines of the smallest × lowest similarity**, roughly the lines that merging
 the copies would remove (for two declarations, the same as the pair's priority). In JSON,
 `groups` lists each group's members, similarity range, priority and lines, and `similarPairs`
-still lists every pair. `--fail-on-duplicates` still counts pairs.
+still lists every reported pair. `--fail-on-duplicates` still counts pairs.
 
 On swift-syntax (functions at 0.8), 375 pairs become 109 groups plus 36 pairs between groups.
 

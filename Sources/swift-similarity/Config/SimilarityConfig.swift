@@ -21,6 +21,7 @@ import Foundation
 /// rename_cost = 1.0           # --rename-cost
 /// compare = "tree"           # --compare ("tree", "members" or "witnesses")
 /// group = false              # --group / --no-group
+/// max_pairs = 10000           # --max-pairs (0 for no limit)
 /// ```
 ///
 /// `no_ignore_directives = true`, mirroring the `--no-ignore-directives` flag, is accepted as the
@@ -43,6 +44,7 @@ public struct SimilarityConfig: Equatable, Sendable {
     public var renameCost: Double?
     public var compare: String?
     public var group: Bool?
+    public var maxPairs: Int?
     /// Keys the file sets that are not supported, for warnings.
     public var unknownKeys: [String] = []
 
@@ -58,11 +60,13 @@ public struct SimilarityConfig: Equatable, Sendable {
         failOnDuplicates: Bool? = nil,
         renameCost: Double? = nil,
         compare: String? = nil,
-        group: Bool? = nil
+        group: Bool? = nil,
+        maxPairs: Int? = nil
     ) {
         self.renameCost = renameCost
         self.compare = compare
         self.group = group
+        self.maxPairs = maxPairs
         self.threshold = threshold
         self.elementType = elementType
         self.exclude = exclude
@@ -159,6 +163,8 @@ public struct SimilarityConfig: Equatable, Sendable {
                 config.compare = try string()
             case "group":
                 config.group = try bool()
+            case "max_pairs":
+                config.maxPairs = try count()
             case "exclude":
                 switch value {
                 case .string(let string):
@@ -188,6 +194,9 @@ public struct ScanSettings: Equatable, Sendable {
     /// Cost of renaming (relabeling) a node, as in the TSED paper (arXiv:2404.08817).
     public static let defaultRenameCost = 1.0
     public static let defaultCompare = "tree"
+    /// At most this many pairs are reported, so a codebase with many copies (such as generated
+    /// code) cannot produce an unreadable report or exhaust memory; 0 means no limit.
+    public static let defaultMaxPairs = 10_000
     /// The element type used with `compare = "members"` when none is given: every kind of type.
     public static let defaultMemberElementType = "all"
     /// The element type used with `compare = "witnesses"` when none is given: every kind of member.
@@ -213,6 +222,8 @@ public struct ScanSettings: Equatable, Sendable {
     public var compare: String
     /// Report groups of mutually similar declarations instead of a flat list of pairs.
     public var group: Bool
+    /// Report at most this many pairs, the most similar first; 0 for no limit.
+    public var maxPairs: Int
 
     public init(
         threshold: Double = defaultThreshold,
@@ -226,8 +237,10 @@ public struct ScanSettings: Equatable, Sendable {
         failOnDuplicates: Bool = false,
         renameCost: Double = defaultRenameCost,
         compare: String = defaultCompare,
-        group: Bool = false
+        group: Bool = false,
+        maxPairs: Int = defaultMaxPairs
     ) {
+        self.maxPairs = maxPairs
         self.renameCost = renameCost
         self.compare = compare
         self.group = group
@@ -271,7 +284,8 @@ public struct ScanSettings: Equatable, Sendable {
             failOnDuplicates: commandLine.failOnDuplicates ?? file?.failOnDuplicates ?? defaults.failOnDuplicates,
             renameCost: commandLine.renameCost ?? file?.renameCost ?? defaults.renameCost,
             compare: compare,
-            group: commandLine.group ?? file?.group ?? defaults.group
+            group: commandLine.group ?? file?.group ?? defaults.group,
+            maxPairs: commandLine.maxPairs ?? file?.maxPairs ?? defaults.maxPairs
         )
     }
 
