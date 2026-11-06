@@ -2,7 +2,38 @@
 
 A Swift tool for detecting similar code patterns using tree edit distance algorithms.
 
+## Installation
+
+Requires Swift 6.1 or later, on macOS 11 or later or Linux. The latest release is
+[0.0.1](https://github.com/elmetal/swift-similarity/releases/tag/0.0.1).
+
+### Command-line tool
+Build it from source and copy the binary to a directory on your `PATH`:
+
+```bash
+git clone --branch 0.0.1 https://github.com/elmetal/swift-similarity.git
+cd swift-similarity
+swift build -c release
+cp .build/release/swift-similarity-cli /usr/local/bin/
+```
+
+Copying to `/usr/local/bin` may need `sudo`; any other directory on `PATH` works too. Then run
+`swift-similarity-cli scan <paths>` (`swift-similarity-cli scan --help` lists every option).
+
+### SwiftPM command plugin
+To scan a Swift package without installing anything, add this package as a dependency and run
+`swift package similarity` (see [SwiftPM command plugin](#swiftpm-command-plugin)):
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/elmetal/swift-similarity.git", from: "0.0.1"),
+],
+```
+
 ## Usage
+
+The examples below run the tool from a checkout of this repository with `swift run
+swift-similarity-cli`. With the tool installed, use `swift-similarity-cli` instead.
 
 ### Basic similarity detection
 ```bash
@@ -288,7 +319,7 @@ Add the package as a dependency, then run `swift package similarity`:
 ```swift
 // Package.swift of your package
 dependencies: [
-    .package(url: "https://github.com/elmetal/swift-similarity", branch: "main"),
+    .package(url: "https://github.com/elmetal/swift-similarity.git", from: "0.0.1"),
 ],
 ```
 
@@ -306,8 +337,7 @@ It runs in the package directory, so a `similarity.toml` there applies. It only 
 `--output` inside the package, add `--allow-writing-to-package-directory`.
 
 ### Xcode Run Script build phase
-With `swift-similarity-cli` installed (for example `swift build -c release` and copying
-`.build/release/swift-similarity-cli` to a directory on `PATH`), add a Run Script phase:
+With `swift-similarity-cli` installed (see [Installation](#installation)), add a Run Script phase:
 
 ```bash
 if command -v swift-similarity-cli >/dev/null; then
