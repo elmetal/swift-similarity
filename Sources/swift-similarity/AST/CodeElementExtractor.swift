@@ -14,6 +14,10 @@ public enum CodeElementType: String, CaseIterable, Sendable {
     case actor = "actor"
     case `protocol` = "protocol"
     case `extension` = "extension"
+    /// A computed property; only extracted as a protocol witness (`scan --compare witnesses`)
+    case property = "property"
+    /// A subscript; only extracted as a protocol witness (`scan --compare witnesses`)
+    case `subscript` = "subscript"
 }
 
 /// Represents an extracted code element with location information
@@ -39,6 +43,9 @@ public struct CodeElement: Sendable {
     /// Members declared directly in the declaration, for types, protocols and extensions;
     /// nil for functions and initializers. Used by `MemberSimilarityScanner`.
     public let members: [TypeMember]?
+    /// The protocol requirement this element implements, set by `WitnessSimilarityScanner` for
+    /// the elements it compares; nil otherwise.
+    public internal(set) var witness: Witness? = nil
 
     /// Creates a code element
     public init(elementType: CodeElementType, name: String, signature: String, filePath: String, startLine: Int, endLine: Int, codePreview: String, treeNode: TreeNode, byteRange: Range<Int>? = nil, members: [TypeMember]? = nil) {
@@ -97,6 +104,10 @@ public final class CodeElementExtractor: Sendable {
         /// of types and extensions. Names, attributes, modifiers, signatures and inheritance
         /// clauses are left out. Declarations without a body (protocol requirements) are skipped.
         public let compareBodyOnly: Bool
+        /// Kinds of members of types and extensions to collect as `WitnessCandidate`s (function for
+        /// methods, init, property for computed properties, subscript); empty collects none. The
+        /// candidates are compared by body, whatever `compareBodyOnly` says.
+        public let witnessCandidateTypes: Set<CodeElementType>
 
         /// Creates extraction configuration
         /// - Parameters:
@@ -106,13 +117,15 @@ public final class CodeElementExtractor: Sendable {
         ///   - minTokens: Minimum number of tokens (default: 0, no limit)
         ///   - respectIgnoreDirectives: Honor `similarity-ignore` comments (default: true)
         ///   - compareBodyOnly: Compare bodies only (default: false)
+        ///   - witnessCandidateTypes: Kinds of members to collect as witness candidates (default: none)
         public init(
             elementTypes: Set<CodeElementType> = Set(CodeElementType.allCases),
             maxPreviewLines: Int = 5,
             minLines: Int = 0,
             minTokens: Int = 0,
             respectIgnoreDirectives: Bool = true,
-            compareBodyOnly: Bool = false
+            compareBodyOnly: Bool = false,
+            witnessCandidateTypes: Set<CodeElementType> = []
         ) {
             self.elementTypes = elementTypes
             self.maxPreviewLines = maxPreviewLines
@@ -120,6 +133,7 @@ public final class CodeElementExtractor: Sendable {
             self.minTokens = minTokens
             self.respectIgnoreDirectives = respectIgnoreDirectives
             self.compareBodyOnly = compareBodyOnly
+            self.witnessCandidateTypes = witnessCandidateTypes
         }
     }
 
@@ -154,6 +168,10 @@ public final class CodeElementExtractor: Sendable {
         /// Declarations of the selected element types skipped because of a `similarity-ignore`
         /// comment, in file path order
         public var ignored: [IgnoredDeclaration] = []
+        /// Members with a body that may implement a protocol requirement, when
+        /// `Configuration.witnessCandidateTypes` asks for them, in file path order. Used by
+        /// `WitnessSimilarityScanner`.
+        public var witnessCandidates: [WitnessCandidate] = []
     }
     
     /// Extracts code elements, conformances and ignored declarations from one Swift file
@@ -171,7 +189,12 @@ public final class CodeElementExtractor: Sendable {
         )
         
         visitor.walk(sourceFile)
-        return Extraction(elements: visitor.extractedElements, conformances: visitor.conformances, ignored: visitor.ignoredDeclarations)
+        return Extraction(
+            elements: visitor.extractedElements,
+            conformances: visitor.conformances,
+            ignored: visitor.ignoredDeclarations,
+            witnessCandidates: visitor.witnessCandidates
+        )
     }
     
     /// Extracts code elements from a directory
@@ -210,6 +233,7 @@ public final class CodeElementExtractor: Sendable {
             extraction.elements.append(contentsOf: file.elements)
             extraction.conformances.merge(file.conformances)
             extraction.ignored.append(contentsOf: file.ignored)
+            extraction.witnessCandidates.append(contentsOf: file.witnessCandidates)
         }
         return extraction
     }
@@ -252,6 +276,8 @@ private class CodeElementVisitor: SyntaxVisitor {
     var conformances = ConformanceIndex()
     /// Declarations of the selected types skipped because of a `similarity-ignore` comment
     var ignoredDeclarations: [IgnoredDeclaration] = []
+    /// Members with a body that may implement a protocol requirement
+    var witnessCandidates: [WitnessCandidate] = []
     
     init(filePath: String, sourceLines: [String], sourceContent: String, sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
         self.filePath = filePath
@@ -272,35 +298,122 @@ private class CodeElementVisitor: SyntaxVisitor {
     }
     
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        conformances.add(node)
-        return collect(node, as: .struct)
+        collectGroup(node, as: .struct)
     }
     
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        conformances.add(node)
-        return collect(node, as: .class)
+        collectGroup(node, as: .class)
     }
     
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        conformances.add(node)
-        return collect(node, as: .enum)
+        collectGroup(node, as: .enum)
     }
     
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        conformances.add(node)
-        return collect(node, as: .actor)
+        collectGroup(node, as: .actor)
     }
     
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-        conformances.add(node)
-        return collect(node, as: .protocol)
+        collectGroup(node, as: .protocol)
     }
     
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        conformances.add(node)
-        return collect(node, as: .extension)
+        collectGroup(node, as: .extension)
     }
     
+    /// Records a type, protocol or extension: its conformances, its witness candidates and, if its
+    /// type was requested, the declaration itself.
+    private func collectGroup(_ node: some DeclGroupSyntax, as type: CodeElementType) -> SyntaxVisitorContinueKind {
+        conformances.add(node)
+        collectWitnessCandidates(of: node)
+        return collect(node, as: type)
+    }
+
+    /// Records the members of `group` with a body (methods, initializers, computed properties and
+    /// subscripts) whose kind is in `witnessCandidateTypes`, compared by their bodies.
+    private func collectWitnessCandidates(of group: some DeclGroupSyntax) {
+        // Protocol declarations only state requirements; their extensions hold the code.
+        guard !configuration.witnessCandidateTypes.isEmpty, !group.is(ProtocolDeclSyntax.self),
+              let lookupName = ConformanceIndex.typeName(of: group) else { return }
+        let displayName = Syntax(group).as(ExtensionDeclSyntax.self)?.extendedType.trimmedDescription ?? lookupName
+        collectWitnessCandidates(in: group.memberBlock.members, typeName: lookupName, displayName: displayName)
+    }
+
+    private func collectWitnessCandidates(in items: MemberBlockItemListSyntax, typeName: String, displayName: String) {
+        for item in items {
+            let decl = item.decl
+            if let ifConfig = decl.as(IfConfigDeclSyntax.self) {
+                for clause in ifConfig.clauses {
+                    if case .decls(let nested) = clause.elements {
+                        collectWitnessCandidates(in: nested, typeName: typeName, displayName: displayName)
+                    }
+                }
+                continue
+            }
+            guard let (type, body) = Self.witnessBody(of: decl),
+                  configuration.witnessCandidateTypes.contains(type),
+                  let member = TypeMember.members(declaredBy: decl).first else { continue }
+            let name = "\(displayName).\(member.name)"
+            let (startLine, endLine) = calculateLineNumbers(for: decl)
+            if configuration.respectIgnoreDirectives, let comment = ignoreDirectiveComment(decl) {
+                ignoredDeclarations.append(IgnoredDeclaration(
+                    elementType: type, name: name, filePath: filePath,
+                    startLine: startLine, endLine: endLine, comment: comment
+                ))
+                continue
+            }
+            if endLine - startLine + 1 < configuration.minLines {
+                continue
+            }
+            if configuration.minTokens > 0 && !hasTokens(body, atLeast: configuration.minTokens) {
+                continue
+            }
+            let element = CodeElement(
+                elementType: type,
+                name: name,
+                signature: decl.trimmedDescription,
+                filePath: filePath,
+                startLine: startLine,
+                endLine: endLine,
+                codePreview: extractCodePreview(startLine: startLine, endLine: endLine),
+                treeNode: ASTToTreeConverter.convertSyntaxNode(body),
+                byteRange: decl.positionAfterSkippingLeadingTrivia.utf8Offset..<decl.endPositionBeforeTrailingTrivia.utf8Offset
+            )
+            witnessCandidates.append(WitnessCandidate(element: element, typeName: typeName, member: member))
+        }
+    }
+
+    /// The kind and body of a member that can implement a protocol requirement with code: a method
+    /// or initializer with a body, a computed property (one binding with a getter) or a subscript.
+    /// Stored properties, including those with only `willSet`/`didSet` observers, have no body to
+    /// compare.
+    private static func witnessBody(of decl: DeclSyntax) -> (CodeElementType, Syntax)? {
+        if let function = decl.as(FunctionDeclSyntax.self) {
+            return function.body.map { (.function, Syntax($0)) }
+        }
+        if let initializer = decl.as(InitializerDeclSyntax.self) {
+            return initializer.body.map { (.initializer, Syntax($0)) }
+        }
+        if let subscriptDecl = decl.as(SubscriptDeclSyntax.self), let accessorBlock = subscriptDecl.accessorBlock {
+            return hasGetterBody(accessorBlock) ? (.subscript, Syntax(accessorBlock)) : nil
+        }
+        if let variable = decl.as(VariableDeclSyntax.self), variable.bindings.count == 1,
+           let accessorBlock = variable.bindings.first?.accessorBlock {
+            return hasGetterBody(accessorBlock) ? (.property, Syntax(accessorBlock)) : nil
+        }
+        return nil
+    }
+
+    /// Whether the accessors compute a value: a getter with code, not only observers or `{ get }`.
+    private static func hasGetterBody(_ accessorBlock: AccessorBlockSyntax) -> Bool {
+        switch accessorBlock.accessors {
+        case .getter:
+            return true
+        case .accessors(let accessors):
+            return accessors.contains { $0.accessorSpecifier.tokenKind == .keyword(.get) && $0.body != nil }
+        }
+    }
+
     /// Records `node` if its type was requested; nested declarations are always visited.
     private func collect(_ node: some DeclSyntaxProtocol, as type: CodeElementType) -> SyntaxVisitorContinueKind {
         if configuration.elementTypes.contains(type), let element = createCodeElement(from: node, type: type) {

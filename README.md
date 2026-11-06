@@ -131,7 +131,7 @@ ignore_directives = false              # --ignore-directives / --no-ignore-direc
 sort = "priority"                      # --sort (default "similarity")
 fail_on_duplicates = true              # --fail-on-duplicates / --no-fail-on-duplicates (default false)
 rename_cost = 1.0                      # --rename-cost (default 1.0)
-compare = "members"                    # --compare (default "tree")
+compare = "members"                    # --compare: "tree" (default), "members" or "witnesses"
 group = true                           # --group / --no-group (default false)
 ```
 
@@ -223,8 +223,48 @@ compared like other members.
 
 Types with fewer than two members left are skipped, as are `--min-lines` short declarations and
 `similarity-ignore` ones.
-`--rename-cost`, `--body-only`, `--min-tokens` and `--advanced` apply to `--compare tree` only.
+`--rename-cost`, `--body-only`, `--min-tokens` and `--advanced` do not apply to `--compare members`.
 In `similarity.toml`, set `compare = "members"`.
+
+### Comparing protocol implementations
+`--compare witnesses` compares implementations of the same protocol requirement in different
+types. When several types implement a requirement with the same code, that code could become one
+default implementation in an extension of the protocol; when a type repeats a default
+implementation that already exists, its own implementation may be unnecessary.
+
+```bash
+swift run swift-similarity-cli scan Sources/ --compare witnesses
+```
+
+```swift
+protocol Named { var name: String { get }; var label: String { get } }
+
+struct User: Named {
+    let name: String
+    var label: String { "[\(name)]" }   // ┐ both implement Named.label:
+}                                       // │ consider a default implementation
+struct Team: Named {                    // │ in an extension of Named
+    let name: String                    // │
+    var label: String { "[\(name)]" }   // ┘
+}
+```
+
+Methods, initializers, computed properties and subscripts that have a body are compared by their
+bodies only (the requirement already fixes the name and signature), with TSED as in
+`--compare tree`, and only with other implementations of the same requirement. Members of a
+protocol's extensions that implement its requirements are its default implementations and are
+compared too. A member implements a requirement as described under
+[Comparing type members](#comparing-type-members), except that only protocols declared in the
+scanned files count: requirements of standard library protocols such as `description` or `==`
+cannot share one default implementation.
+
+Each pair says which requirement both declarations implement and what to do about it, in the text,
+JSON (`requirement`, `advice`), Xcode and GitHub output.
+
+`--element-type` selects the kinds of members: `function` (methods), `init`, `property`,
+`subscript` or `all` (the default in this mode). Implementations are often one-liners, so
+`--min-lines` defaults to 0 here; `--min-tokens`, `--rename-cost`, `--threshold` and
+`similarity-ignore` comments apply as usual. In `similarity.toml`, set `compare = "witnesses"`.
 
 ### Performance
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many

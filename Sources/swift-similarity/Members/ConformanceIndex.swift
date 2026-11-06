@@ -100,6 +100,31 @@ public struct ConformanceIndex: Sendable, Equatable {
         return result
     }
 
+    /// The requirements of the protocols declared in the scanned files that the type named
+    /// `typeName` conforms to (directly or through protocol inheritance), each with the names of
+    /// the protocols declaring it. For a protocol, its own requirements are included, so members of
+    /// its extensions map to the requirements they provide default implementations for.
+    ///
+    /// Standard library protocols are left out: their requirements cannot get one default
+    /// implementation shared by the scanned types.
+    public func declaredRequirements(forTypeNamed typeName: String) -> [Requirement: Set<String>] {
+        let name = Self.simpleName(typeName)
+        var visited: Set<String> = []
+        var pending = Array(conformances[name] ?? [])
+        if requirements[name] != nil {
+            pending.append(name)
+        }
+        var result: [Requirement: Set<String>] = [:]
+        while let protocolName = pending.popLast() {
+            guard visited.insert(protocolName).inserted else { continue }
+            for requirement in requirements[protocolName] ?? [] {
+                result[requirement, default: []].insert(protocolName)
+            }
+            pending.append(contentsOf: conformances[protocolName] ?? Self.standardLibraryInheritance[protocolName] ?? [])
+        }
+        return result
+    }
+
     /// The members of `element` that do not satisfy a requirement of a protocol its type conforms
     /// to, or nil if it has no members. Protocols keep all their members, since their members are
     /// the requirements being compared.
