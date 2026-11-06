@@ -10,7 +10,7 @@ struct OutputFormatter {
     let advanced: Bool
     /// Tree edit operation costs used for the TSED scores
     let costs: APTED.OperationCosts
-    /// What was compared ("tree" or "members")
+    /// What was compared ("tree", "members" or "witnesses")
     let compare: String
     let printCodePreviews: Bool
     let sortOrder: SimilarityRanking.SortOrder
@@ -62,7 +62,7 @@ struct OutputFormatter {
                 elementType: elementType,
                 threshold: threshold,
                 compare: compare,
-                renameCost: compare == "tree" ? costs.substitution : nil,
+                renameCost: compare == "members" ? nil : costs.substitution,
                 advancedMetrics: advanced,
                 sortOrder: sortOrder.rawValue
             ),
@@ -86,7 +86,9 @@ struct OutputFormatter {
                     ),
                     codePreview1: printCodePreviews ? pair.0.codePreview : "",
                     codePreview2: printCodePreviews ? pair.1.codePreview : "",
-                    advancedMetrics: advancedMetrics(for: pair)
+                    advancedMetrics: advancedMetrics(for: pair),
+                    requirement: pair.0.witness?.requirement,
+                    advice: Witness.advice(for: [pair.0, pair.1])
                 )
             },
             groups: grouped ? SimilarityGrouping.group(similarPairs, by: sortOrder).groups.map { group in
@@ -95,6 +97,8 @@ struct OutputFormatter {
                     maximumSimilarity: group.maximumSimilarity * 100,
                     priority: group.priority,
                     lines: group.lines,
+                    requirement: group.members[0].witness?.requirement,
+                    advice: Witness.advice(for: group.members),
                     members: group.members.map { member in
                         SimilarGroup.Member(
                             elementType: member.elementType.rawValue,
@@ -152,6 +156,9 @@ struct OutputFormatter {
         output += "   Priority: \(String(format: "%.1f", SimilarityRanking.priority(of: pair))) (lines: \(SimilarityRanking.lines(of: pair)))\n"
         output += "   File 1: \(pair.0.filePath):\(pair.0.startLine)-\(pair.0.endLine)\n"
         output += "   File 2: \(pair.1.filePath):\(pair.1.startLine)-\(pair.1.endLine)\n"
+        if let advice = Witness.advice(for: [pair.0, pair.1]) {
+            output += "   Witnesses: \(advice)\n"
+        }
         
         if let metrics = advancedMetrics(for: pair) {
             output += "   Metrics: structural \(String(format: "%.2f%%", metrics.structural))"
@@ -187,6 +194,9 @@ struct OutputFormatter {
             let kind = types.count == 1 ? Self.pluralName(of: group.members[0].elementType) : "Declarations"
             output += "\(index + 1). \(group.members.count) \(kind), similarity \(similarity)\n"
             output += "   Priority: \(String(format: "%.1f", group.priority)) (lines: \(group.lines))\n"
+            if let advice = Witness.advice(for: group.members) {
+                output += "   Witnesses: \(advice)\n"
+            }
             for member in group.members {
                 let label = types.count == 1 ? member.name : "\(member.elementType.rawValue.capitalized): \(member.name)"
                 output += "   - \(label)  \(member.filePath):\(member.startLine)-\(member.endLine)\n"
@@ -211,6 +221,7 @@ struct OutputFormatter {
         switch type {
         case .class: "Classes"
         case .initializer: "Initializers"
+        case .property: "Properties"
         default: type.rawValue.capitalized + "s"
         }
     }
@@ -218,19 +229,27 @@ struct OutputFormatter {
     /// Generates text output from similar pairs
     private func generateTextOutput(similarPairs: [(CodeElement, CodeElement, Double)]) -> String {
         var output = ""
-        let elementDescription = elementType.lowercased() == "all" ? "Elements (All Types)" : "\(elementType.capitalized) Elements"
+        let elementDescription = if compare == "witnesses" {
+            elementType.lowercased() == "all" ? "Protocol Witnesses" : "\(elementType.capitalized) Protocol Witnesses"
+        } else {
+            elementType.lowercased() == "all" ? "Elements (All Types)" : "\(elementType.capitalized) Elements"
+        }
         output += "Similar \(elementDescription) Found: \(similarPairs.count)\n"
         output += "Threshold: \(threshold)\n"
-        if compare == "tree" {
+        switch compare {
+        case "members":
+            output += "Compare: members (kind, name and type of each member)\n"
+        case "witnesses":
+            output += "Compare: witnesses (bodies of implementations of the same protocol requirement)\n"
             output += "Rename Cost: \(costs.substitution)\n"
-        } else {
-            output += "Compare: \(compare) (kind, name and type of each member)\n"
+        default:
+            output += "Rename Cost: \(costs.substitution)\n"
         }
         output += "Advanced Metrics: \(advanced)\n"
         output += "\n"
         
         if similarPairs.isEmpty {
-            output += "No similar \(elementType) elements found.\n"
+            output += compare == "witnesses" ? "No similar protocol witnesses found.\n" : "No similar \(elementType) elements found.\n"
         } else if grouped {
             output += groupedText(similarPairs)
         } else {

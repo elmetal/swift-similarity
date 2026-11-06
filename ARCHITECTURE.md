@@ -48,8 +48,8 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - `@main` entry point (swift-argument-parser); `scan` is the default subcommand
 
 **ScanCommand**
-- Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`), threshold, output format, output file, code previews, thread count, progress, statistics
-- Extracts elements, then runs `SimilarityScanner` (`--compare tree`, the default) or `MemberSimilarityScanner` (`--compare members`)
+- Options: element type (`function` / `init` / `struct` / `class` / `enum` / `actor` / `protocol` / `extension` / `all`; with `--compare witnesses`, `function` / `init` / `property` / `subscript` / `all`), threshold, output format, output file, code previews, thread count, progress, statistics
+- Extracts elements, then runs `SimilarityScanner` (`--compare tree`, the default), `MemberSimilarityScanner` (`--compare members`) or `WitnessSimilarityScanner` (`--compare witnesses`)
 - `--advanced` adds structural / label / depth metrics (`AdvancedSimilarityMetrics`) for each reported pair; pairs are still selected by TSED
 
 **OutputFormatter / OutputModels**
@@ -152,12 +152,23 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
   library protocols
 - `membersExcludingWitnesses(of:)` leaves out members that satisfy a requirement of a protocol the
   type conforms to, directly or through protocol inheritance
+- `declaredRequirements(forTypeNamed:)` maps the requirements of protocols declared in the scanned
+  files that a type (or a protocol, for its extensions) conforms to, to the protocols declaring them
 
 **MemberSimilarityScanner**
 - With a `ConformanceIndex`, compares members after leaving out protocol witnesses
 - Compares elements with at least two (remaining) members, within groups (concrete types, protocols,
   extensions), skipping nested pairs; returns the same `Result` and `ScanStatistics` as
   `SimilarityScanner`, in the same order (most similar first, ties in input order)
+
+**WitnessSimilarityScanner / WitnessCandidate / Witness**
+- With `Configuration.witnessCandidateTypes`, `CodeElementExtractor` collects members with a body
+  (methods, initializers, computed properties, subscripts) of types and extensions as
+  `WitnessCandidate`s, whose tree is the body only
+- `witnessesByRequirement(_:conformances:)` keeps the candidates that implement a requirement of a
+  protocol declared in the scanned files, sets `CodeElement.witness`, and groups them by requirement
+- Each group is scanned with `SimilarityScanner` (TSED of bodies); pairs never cross requirements
+- `Witness.advice(for:)` suggests a default implementation, or points at the existing one
 
 ### 6. Data Models (`Sources/swift-similarity/Models/`)
 

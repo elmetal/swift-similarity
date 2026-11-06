@@ -29,6 +29,9 @@ swift-similarity-cli scan Sources --element-type all --sort priority --print
 # Types with the same shape (same fields or requirements), ignoring member order and bodies
 swift-similarity-cli scan Sources --compare members
 
+# Same code implementing the same protocol requirement in several types: default implementation candidates
+swift-similarity-cli scan Sources --compare witnesses
+
 # What else looks like one function or type?
 swift-similarity-cli scan Sources --element-type all --filter-name parseHeader --threshold 0.7
 

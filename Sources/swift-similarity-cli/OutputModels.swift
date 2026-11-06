@@ -26,6 +26,10 @@ struct SimilarPair: Codable {
     let codePreview2: String
     /// Additional metrics, present only with `--advanced`
     let advancedMetrics: AdvancedMetrics?
+    /// `Protocol.requirement` both declarations implement; only with `--compare witnesses`
+    let requirement: String?
+    /// What to do about the similar implementations; only with `--compare witnesses`
+    let advice: String?
 }
 
 /// Additional similarity metrics reported with `--advanced` (percentages)
@@ -62,7 +66,7 @@ struct ScanResult: Codable {
         let totalPairs: Int
         let elementType: String
         let threshold: Double
-        /// What was compared: "tree" (TSED) or "members"
+        /// What was compared: "tree" (TSED), "members" or "witnesses" (TSED of bodies)
         let compare: String
         /// Cost of a node rename in the tree edit distance (insertions and deletions cost 1);
         /// absent with `compare` "members", which has no edit distance
@@ -82,6 +86,10 @@ struct SimilarGroup: Codable {
     let priority: Double
     /// Line span of the smallest member
     let lines: Int
+    /// `Protocol.requirement` every member implements; only with `--compare witnesses`
+    let requirement: String?
+    /// What to do about the similar implementations; only with `--compare witnesses`
+    let advice: String?
     let members: [Member]
     
     struct Member: Codable {

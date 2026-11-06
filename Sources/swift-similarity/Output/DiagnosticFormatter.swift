@@ -76,6 +76,9 @@ public enum DiagnosticFormatter {
         if sorted.count > maximumNamedMatches {
             text += " and \(sorted.count - maximumNamedMatches) more"
         }
+        if let advice = Witness.advice(for: [element] + sorted.map(\.0)) {
+            text += "; \(advice)"
+        }
         return text + " [swift-similarity]"
     }
 

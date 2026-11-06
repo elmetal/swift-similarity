@@ -19,7 +19,7 @@ import Foundation
 /// sort = "similarity"         # --sort
 /// fail_on_duplicates = false  # --fail-on-duplicates / --no-fail-on-duplicates
 /// rename_cost = 1.0           # --rename-cost
-/// compare = "tree"           # --compare
+/// compare = "tree"           # --compare ("tree", "members" or "witnesses")
 /// group = false              # --group / --no-group
 /// ```
 ///
@@ -190,6 +190,11 @@ public struct ScanSettings: Equatable, Sendable {
     public static let defaultCompare = "tree"
     /// The element type used with `compare = "members"` when none is given: every kind of type.
     public static let defaultMemberElementType = "all"
+    /// The element type used with `compare = "witnesses"` when none is given: every kind of member.
+    public static let defaultWitnessElementType = "all"
+    /// The minimum lines used with `compare = "witnesses"` when none is given: none, since
+    /// implementations of a requirement are often one-liners worth sharing.
+    public static let defaultWitnessMinLines = 0
 
     public var threshold: Double
     public var elementType: String
@@ -203,7 +208,8 @@ public struct ScanSettings: Equatable, Sendable {
     public var failOnDuplicates: Bool
     /// Cost of a node rename in the tree edit distance; insertions and deletions cost 1.
     public var renameCost: Double
-    /// What is compared: "tree" (whole syntax trees, TSED) or "members" (members of types).
+    /// What is compared: "tree" (whole syntax trees, TSED), "members" (members of types) or
+    /// "witnesses" (bodies of implementations of the same protocol requirement).
     public var compare: String
     /// Report groups of mutually similar declarations instead of a flat list of pairs.
     public var group: Bool
@@ -241,13 +247,23 @@ public struct ScanSettings: Equatable, Sendable {
     public static func resolve(commandLine: SimilarityConfig, file: SimilarityConfig?) -> ScanSettings {
         let defaults = ScanSettings()
         let compare = commandLine.compare ?? file?.compare ?? defaults.compare
-        // Members are compared between types, so that mode defaults to every kind of type.
-        let defaultElementType = compare.lowercased() == "members" ? defaultMemberElementType : defaults.elementType
+        // Members are compared between types, so that mode defaults to every kind of type, and
+        // witnesses to every kind of member; witnesses are often short, so any length counts.
+        let defaultElementType: String
+        let defaultMinLines: Int
+        switch compare.lowercased() {
+        case "members":
+            (defaultElementType, defaultMinLines) = (defaultMemberElementType, defaults.minLines)
+        case "witnesses":
+            (defaultElementType, defaultMinLines) = (defaultWitnessElementType, defaultWitnessMinLines)
+        default:
+            (defaultElementType, defaultMinLines) = (defaults.elementType, defaults.minLines)
+        }
         return ScanSettings(
             threshold: commandLine.threshold ?? file?.threshold ?? defaults.threshold,
             elementType: commandLine.elementType ?? file?.elementType ?? defaultElementType,
             exclude: (file?.exclude ?? []) + commandLine.exclude,
-            minLines: commandLine.minLines ?? file?.minLines ?? defaults.minLines,
+            minLines: commandLine.minLines ?? file?.minLines ?? defaultMinLines,
             minTokens: commandLine.minTokens ?? file?.minTokens ?? defaults.minTokens,
             bodyOnly: commandLine.bodyOnly ?? file?.bodyOnly ?? defaults.bodyOnly,
             ignoreDirectives: commandLine.ignoreDirectives ?? file?.ignoreDirectives ?? defaults.ignoreDirectives,

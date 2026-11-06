@@ -7,7 +7,7 @@ import swift_similarity
 struct ScanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "scan",
-        abstract: "Scan directories and files for similar Swift declarations (functions, initializers, types, protocols, extensions)",
+        abstract: "Scan directories and files for similar Swift declarations (functions, initializers, types, protocols, extensions) or protocol witnesses",
         discussion: """
             Settings are also read from the nearest \(SimilarityConfig.fileName) in the current directory \
             or one of its parents. Command-line options override it; see the README for the supported keys.
@@ -20,7 +20,7 @@ struct ScanCommand: AsyncParsableCommand {
     @Option(name: .long, help: ArgumentHelp("Skip files and directories matching a glob pattern (repeatable), such as 'Tests', '**/Generated/**' or '*.generated.swift'", valueName: "pattern"))
     var exclude: [String] = []
     
-    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames); default: \(ScanSettings.defaultElementType))")
+    @Option(name: .shortAndLong, help: "Type of code element to search (\(ScanCommand.elementTypeNames); default: \(ScanSettings.defaultElementType)). With --compare witnesses: \(ScanCommand.witnessElementTypeNames)")
     var elementType: String?
     
     @Option(name: .shortAndLong, help: "Similarity threshold (0.0-1.0; default: \(ScanSettings.defaultThreshold))")
@@ -54,7 +54,7 @@ struct ScanCommand: AsyncParsableCommand {
 
     // MARK: - Scoring Options
 
-    @Option(name: .long, help: ArgumentHelp("What to compare: 'tree' (whole syntax trees, TSED) or 'members' (the members of types, protocols and extensions: kind, name and type, ignoring order and bodies; element type defaults to all types) (default: \(ScanSettings.defaultCompare))", valueName: "mode"))
+    @Option(name: .long, help: ArgumentHelp("What to compare: 'tree' (whole syntax trees, TSED), 'members' (the members of types, protocols and extensions: kind, name and type, ignoring order and bodies; element type defaults to all types) or 'witnesses' (bodies of implementations of the same requirement of a protocol declared in the scanned files, to find default implementation candidates; element type defaults to all members, minimum lines to 0) (default: \(ScanSettings.defaultCompare))", valueName: "mode"))
     var compare: String?
 
     @Option(name: .long, help: ArgumentHelp("Cost of renaming a node (changing its label, such as + to - or one syntax kind to another) in the tree edit distance; insertions and deletions cost 1. Lower values make structural variants score higher (default: \(ScanSettings.defaultRenameCost))", valueName: "cost"))
@@ -107,15 +107,21 @@ struct ScanCommand: AsyncParsableCommand {
         guard let mode = CompareMode(rawValue: settings.compare.lowercased()) else {
             throw ValidationError("Invalid compare mode '\(settings.compare)'. Valid modes: \(CompareMode.allCases.map(\.rawValue).joined(separator: ", "))")
         }
-        guard Self.elementTypes(for: settings.elementType, mode: .tree) != nil else {
-            throw ValidationError("Invalid element type '\(settings.elementType)'. Valid types: \(Self.elementTypeNames)")
-        }
-        if mode == .members {
+        switch mode {
+        case .tree:
+            guard Self.elementTypes(for: settings.elementType, mode: .tree) != nil else {
+                throw ValidationError("Invalid element type '\(settings.elementType)'. Valid types: \(Self.elementTypeNames)")
+            }
+        case .members:
             guard Self.elementTypes(for: settings.elementType, mode: .members) != nil else {
                 throw ValidationError("--compare members compares types, protocols and extensions, but the element type is '\(settings.elementType)'. Valid types: \(Self.memberElementTypeNames)")
             }
             guard !advanced else {
                 throw ValidationError("--advanced reports syntax tree metrics and cannot be used with --compare members.")
+            }
+        case .witnesses:
+            guard Self.elementTypes(for: settings.elementType, mode: .witnesses) != nil else {
+                throw ValidationError("--compare witnesses compares members that implement protocol requirements, but the element type is '\(settings.elementType)'. Valid types: \(Self.witnessElementTypeNames)")
             }
         }
         guard Self.outputFormats.contains(format.lowercased()) else {
@@ -173,6 +179,12 @@ struct ScanCommand: AsyncParsableCommand {
             printDiagnostic("Rename cost: \(settings.renameCost)")
         case .members:
             printDiagnostic("Compare: members (kind, name and type)")
+        case .witnesses:
+            printDiagnostic("Compare: bodies of implementations of the same protocol requirement")
+            printDiagnostic("Rename cost: \(settings.renameCost)")
+            if bodyOnly {
+                printDiagnostic("Note: witnesses are always compared by their bodies; --body-only does not apply")
+            }
         }
         printDiagnostic("Advanced metrics: \(advanced)")
         printDiagnostic("")
@@ -180,32 +192,40 @@ struct ScanCommand: AsyncParsableCommand {
         var pairCount = 0
         do {
             // Extract code elements from the given paths
+            // Witnesses are members collected separately; conformances are always collected.
             let extractorConfig = CodeElementExtractor.Configuration(
-                elementTypes: targetElementTypes,
+                elementTypes: compareMode == .witnesses ? [] : targetElementTypes,
                 maxPreviewLines: 5,
                 minLines: minLines,
                 minTokens: minTokens,
                 respectIgnoreDirectives: settings.ignoreDirectives,
-                compareBodyOnly: bodyOnly
+                compareBodyOnly: bodyOnly,
+                witnessCandidateTypes: compareMode == .witnesses ? targetElementTypes : []
             )
             let extractor = CodeElementExtractor(configuration: extractorConfig)
             let extraction = try extractor.extract(fromPaths: paths, excluding: exclude.map(ExcludePattern.init))
             let elements = extraction.elements
             
             let elementDescription = elementType == "all" ? "elements (all types)" : "\(elementType) elements"
-            printDiagnostic("Found \(elements.count) \(elementDescription)")
+            if compareMode != .witnesses {
+                printDiagnostic("Found \(elements.count) \(elementDescription)")
+            }
             
+            let treeScanner = SimilarityScanner(
+                maxConcurrency: threads,
+                progressHandler: progress ? Self.printProgress : nil,
+                costs: settings.operationCosts
+            )
             let result: SimilarityScanner.Result
             switch compareMode {
             case .tree:
-                let scanner = SimilarityScanner(
-                    maxConcurrency: threads,
-                    progressHandler: progress ? Self.printProgress : nil,
-                    costs: settings.operationCosts
-                )
-                result = try await scanner.scan(elements, threshold: threshold)
+                result = try await treeScanner.scan(elements, threshold: threshold)
             case .members:
                 result = MemberSimilarityScanner().scan(elements, threshold: threshold, conformances: extraction.conformances)
+            case .witnesses:
+                result = try await WitnessSimilarityScanner(scanner: treeScanner)
+                    .scan(extraction.witnessCandidates, threshold: threshold, conformances: extraction.conformances)
+                printDiagnostic("Found \(result.statistics.elementCount) implementations of requirements of protocols declared in the scanned files (\(extraction.witnessCandidates.count) members with a body)")
             }
             let unsortedPairs = pairFilter.apply(to: result.pairs).map { ($0.first, $0.second, $0.similarity) }
             let similarPairs = SimilarityRanking.sorted(unsortedPairs, by: sortOrder)
@@ -219,7 +239,7 @@ struct ScanCommand: AsyncParsableCommand {
                 printDiagnostic("Note: --show-ignored lists nothing because similarity-ignore comments are not honored (--no-ignore-directives)")
             }
             
-            if elements.count < 2 {
+            if compareMode != .witnesses && elements.count < 2 {
                 printDiagnostic("Need at least 2 \(elementDescription) to compare")
             }
             
@@ -336,13 +356,17 @@ struct ScanCommand: AsyncParsableCommand {
     static let outputFormats = ["text", "json"] + DiagnosticFormatter.Style.allCases.map(\.rawValue)
     
     /// Accepted `--element-type` values, for help and error messages.
-    static let elementTypeNames = (CodeElementType.allCases.map(\.rawValue) + ["all"]).joined(separator: ", ")
+    static let elementTypeNames = (CodeElementType.allCases.filter(treeElementTypes.contains).map(\.rawValue) + ["all"]).joined(separator: ", ")
     
     /// What `--compare` compares.
     enum CompareMode: String, CaseIterable {
         case tree
         case members
+        case witnesses
     }
+    
+    /// Element types compared as syntax trees: declarations extracted on their own.
+    static let treeElementTypes: Set<CodeElementType> = [.function, .initializer, .struct, .class, .enum, .actor, .protocol, .extension]
     
     /// Element types that have members, for `--compare members`.
     static let memberElementTypes: Set<CodeElementType> = [.struct, .class, .enum, .actor, .protocol, .extension]
@@ -350,12 +374,23 @@ struct ScanCommand: AsyncParsableCommand {
     /// Accepted `--element-type` values with `--compare members`, for error messages.
     static let memberElementTypeNames = (CodeElementType.allCases.filter(memberElementTypes.contains).map(\.rawValue) + ["all"]).joined(separator: ", ")
     
+    /// Kinds of members compared with `--compare witnesses`: methods (`function`), initializers,
+    /// computed properties and subscripts.
+    static let witnessElementTypes: Set<CodeElementType> = [.function, .initializer, .property, .subscript]
+    
+    /// Accepted `--element-type` values with `--compare witnesses`, for help and error messages.
+    static let witnessElementTypeNames = (CodeElementType.allCases.filter(witnessElementTypes.contains).map(\.rawValue) + ["all"]).joined(separator: ", ")
+    
     /// The element types selected by `--element-type`, or nil if the value is unknown or, with
-    /// `--compare members`, names a declaration without members. `all` means all types with members
-    /// in that mode.
+    /// `--compare members`, names a declaration without members (with `--compare witnesses`, a
+    /// declaration that cannot implement a requirement). `all` means all of them in that mode.
     private static func elementTypes(for value: String, mode: CompareMode) -> Set<CodeElementType>? {
         let value = value.lowercased()
-        let available = mode == .members ? memberElementTypes : Set(CodeElementType.allCases)
+        let available = switch mode {
+        case .tree: treeElementTypes
+        case .members: memberElementTypes
+        case .witnesses: witnessElementTypes
+        }
         if value == "all" {
             return available
         }
@@ -390,7 +425,10 @@ struct ScanCommand: AsyncParsableCommand {
         printDiagnostic("Total pairs: \(stats.totalPairs)")
         printDiagnostic("  Nested (skipped): \(stats.nestedPairs) (\(percent(stats.nestedPairs)))")
         switch mode {
-        case .tree:
+        case .tree, .witnesses:
+            if mode == .witnesses {
+                printDiagnostic("  (Only pairs implementing the same requirement are counted)")
+            }
             printDiagnostic("  Ruled out by upper bound: \(stats.pairsRuledOutByUpperBound) (\(percent(stats.pairsRuledOutByUpperBound)))")
             printDiagnostic("  Compared with TSED: \(stats.pairsCompared) (\(percent(stats.pairsCompared)))")
         case .members:

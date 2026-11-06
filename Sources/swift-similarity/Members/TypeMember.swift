@@ -60,72 +60,81 @@ extension TypeMember {
 
     private static func collect(_ items: MemberBlockItemListSyntax, into members: inout [TypeMember]) {
         for item in items {
-            let decl = item.decl
-            if let variable = decl.as(VariableDeclSyntax.self) {
-                let isStatic = hasStaticModifier(variable.modifiers)
-                for binding in variable.bindings {
-                    // Tuple patterns (`let (a, b) = ...`) have no single name; skip them.
-                    guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { continue }
-                    members.append(TypeMember(
-                        kind: .property,
-                        isStatic: isStatic,
-                        name: pattern.identifier.text,
-                        type: binding.typeAnnotation.map { normalizedType($0.type) } ?? ""
-                    ))
-                }
-            } else if let function = decl.as(FunctionDeclSyntax.self) {
-                let signature = function.signature
-                members.append(TypeMember(
-                    kind: .method,
-                    isStatic: hasStaticModifier(function.modifiers),
-                    name: function.name.text + argumentLabels(signature.parameterClause, unlabeledByDefault: isOperator(function.name)),
-                    type: signatureType(
-                        parameters: signature.parameterClause,
-                        effects: signature.effectSpecifiers.map { effectText($0.asyncSpecifier, $0.throwsClause) } ?? "",
-                        returnType: signature.returnClause?.type
-                    )
-                ))
-            } else if let initializer = decl.as(InitializerDeclSyntax.self) {
-                let signature = initializer.signature
-                members.append(TypeMember(
-                    kind: .initializer,
-                    name: "init\(initializer.optionalMark?.text ?? "")" + argumentLabels(signature.parameterClause),
-                    type: signatureType(
-                        parameters: signature.parameterClause,
-                        effects: signature.effectSpecifiers.map { effectText($0.asyncSpecifier, $0.throwsClause) } ?? "",
-                        returnType: nil
-                    )
-                ))
-            } else if let subscriptDecl = decl.as(SubscriptDeclSyntax.self) {
-                members.append(TypeMember(
-                    kind: .subscript,
-                    isStatic: hasStaticModifier(subscriptDecl.modifiers),
-                    name: "subscript" + argumentLabels(subscriptDecl.parameterClause, unlabeledByDefault: true),
-                    type: signatureType(parameters: subscriptDecl.parameterClause, effects: "", returnType: subscriptDecl.returnClause.type)
-                ))
-            } else if let enumCase = decl.as(EnumCaseDeclSyntax.self) {
-                for element in enumCase.elements {
-                    let associatedValues = element.parameterClause.map { clause in
-                        "(" + clause.parameters.map { normalizedType($0.type) }.joined(separator: ",") + ")"
-                    }
-                    members.append(TypeMember(kind: .enumCase, name: element.name.text, type: associatedValues ?? ""))
-                }
-            } else if let typeAlias = decl.as(TypeAliasDeclSyntax.self) {
-                members.append(TypeMember(kind: .typeAlias, name: typeAlias.name.text, type: normalizedType(typeAlias.initializer.value)))
-            } else if let associatedType = decl.as(AssociatedTypeDeclSyntax.self) {
-                members.append(TypeMember(
-                    kind: .associatedType,
-                    name: associatedType.name.text,
-                    type: associatedType.inheritanceClause.map { stripWhitespace($0.inheritedTypes.trimmedDescription) } ?? ""
-                ))
-            } else if let ifConfig = decl.as(IfConfigDeclSyntax.self) {
+            if let ifConfig = item.decl.as(IfConfigDeclSyntax.self) {
                 for clause in ifConfig.clauses {
                     if case .decls(let nested) = clause.elements {
                         collect(nested, into: &members)
                     }
                 }
+            } else {
+                members.append(contentsOf: Self.members(declaredBy: item.decl))
             }
         }
+    }
+
+    /// The members one member declaration declares: one per binding of a variable declaration and
+    /// per element of an enum case declaration, otherwise at most one. Empty for declarations that
+    /// are not members here (nested types, `#if` blocks, macro expansions).
+    public static func members(declaredBy decl: DeclSyntax) -> [TypeMember] {
+        if let variable = decl.as(VariableDeclSyntax.self) {
+            let isStatic = hasStaticModifier(variable.modifiers)
+            return variable.bindings.compactMap { binding in
+                // Tuple patterns (`let (a, b) = ...`) have no single name; skip them.
+                guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { return nil }
+                return TypeMember(
+                    kind: .property,
+                    isStatic: isStatic,
+                    name: pattern.identifier.text,
+                    type: binding.typeAnnotation.map { normalizedType($0.type) } ?? ""
+                )
+            }
+        } else if let function = decl.as(FunctionDeclSyntax.self) {
+            let signature = function.signature
+            return [TypeMember(
+                kind: .method,
+                isStatic: hasStaticModifier(function.modifiers),
+                name: function.name.text + argumentLabels(signature.parameterClause, unlabeledByDefault: isOperator(function.name)),
+                type: signatureType(
+                    parameters: signature.parameterClause,
+                    effects: signature.effectSpecifiers.map { effectText($0.asyncSpecifier, $0.throwsClause) } ?? "",
+                    returnType: signature.returnClause?.type
+                )
+            )]
+        } else if let initializer = decl.as(InitializerDeclSyntax.self) {
+            let signature = initializer.signature
+            return [TypeMember(
+                kind: .initializer,
+                name: "init\(initializer.optionalMark?.text ?? "")" + argumentLabels(signature.parameterClause),
+                type: signatureType(
+                    parameters: signature.parameterClause,
+                    effects: signature.effectSpecifiers.map { effectText($0.asyncSpecifier, $0.throwsClause) } ?? "",
+                    returnType: nil
+                )
+            )]
+        } else if let subscriptDecl = decl.as(SubscriptDeclSyntax.self) {
+            return [TypeMember(
+                kind: .subscript,
+                isStatic: hasStaticModifier(subscriptDecl.modifiers),
+                name: "subscript" + argumentLabels(subscriptDecl.parameterClause, unlabeledByDefault: true),
+                type: signatureType(parameters: subscriptDecl.parameterClause, effects: "", returnType: subscriptDecl.returnClause.type)
+            )]
+        } else if let enumCase = decl.as(EnumCaseDeclSyntax.self) {
+            return enumCase.elements.map { element in
+                let associatedValues = element.parameterClause.map { clause in
+                    "(" + clause.parameters.map { normalizedType($0.type) }.joined(separator: ",") + ")"
+                }
+                return TypeMember(kind: .enumCase, name: element.name.text, type: associatedValues ?? "")
+            }
+        } else if let typeAlias = decl.as(TypeAliasDeclSyntax.self) {
+            return [TypeMember(kind: .typeAlias, name: typeAlias.name.text, type: normalizedType(typeAlias.initializer.value))]
+        } else if let associatedType = decl.as(AssociatedTypeDeclSyntax.self) {
+            return [TypeMember(
+                kind: .associatedType,
+                name: associatedType.name.text,
+                type: associatedType.inheritanceClause.map { stripWhitespace($0.inheritedTypes.trimmedDescription) } ?? ""
+            )]
+        }
+        return []
     }
 
     private static func hasStaticModifier(_ modifiers: DeclModifierListSyntax) -> Bool {

@@ -112,13 +112,13 @@ public struct MemberSimilarityScanner: Sendable {
         case `protocol`
         case `extension`
 
-        /// nil for functions and initializers, which have no members.
+        /// nil for functions, initializers, properties and subscripts, which have no members.
         init?(_ type: CodeElementType) {
             switch type {
             case .struct, .class, .enum, .actor: self = .concreteType
             case .protocol: self = .protocol
             case .extension: self = .extension
-            case .function, .initializer: return nil
+            case .function, .initializer, .property, .subscript: return nil
             }
         }
     }
