@@ -65,8 +65,7 @@ jobs:
         run: swift run --skip-build swift-similarity-cli scan Sources --format xcode
 
       # Run the command plugin through SwiftPM on macOS, where plugins run in the sandbox. The
-      # Ubuntu job already annotates the pull request. A hang here once lasted 12 minutes before
-      # the tool was killed, so the step has a timeout.
+      # Ubuntu job already annotates the pull request. The timeouts make a hang fail quickly.
       - name: Run the command plugin
         timeout-minutes: 5
         run: swift package similarity --format xcode
