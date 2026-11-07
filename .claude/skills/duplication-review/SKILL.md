@@ -1,9 +1,9 @@
 ---
-name: check-similarity
+name: duplication-review
 description: Find duplicated or near-duplicated Swift code with swift-similarity and plan refactorings. Use when asked to find duplicate code, copy-paste, similar functions or types, or refactoring opportunities in a Swift codebase.
 ---
 
-# Check Swift code similarity
+# Review Swift code duplication
 
 Use `swift-similarity-cli` to find similar Swift declarations, then turn the results into a
 refactoring plan. Run the CLI yourself; don't ask the user to run it.
