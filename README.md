@@ -168,6 +168,11 @@ same shape (for example two functions that each return a call with forwarded arg
 result was about the same as keeping 1.0 and lowering the threshold by 0.01–0.03. To find more
 pairs, lowering `--threshold` has much the same effect.
 
+The tree edit distance is ordered: children are matched in source order. Moving a statement or a
+member elsewhere costs a deletion plus an insertion of its whole subtree, so two copies whose
+statements were reordered can score well below two copies with an edited line. To find types
+whose members are in a different order, use [`--compare members`](#comparing-type-members).
+
 ### Comparing type members
 `--compare members` compares types by their members instead of their syntax trees. It finds
 types with the same shape, such as two DTOs with the same fields or an enum copied into another
