@@ -59,11 +59,21 @@ jobs:
       - name: Test
         run: swift test --skip-build
 
-      # Run the command plugin through SwiftPM on macOS, where plugins run in the sandbox, and
-      # check the Xcode warning format. The Ubuntu job already annotates the pull request.
+      # Check the Xcode warning format with the tool itself, outside the plugin sandbox.
+      - name: Run the tool directly
+        timeout-minutes: 5
+        run: swift run --skip-build swift-similarity-cli scan Sources --format xcode
+
+      # Run the command plugin through SwiftPM on macOS, where plugins run in the sandbox. The
+      # Ubuntu job already annotates the pull request. A hang here once lasted 12 minutes before
+      # the tool was killed, so the step has a timeout.
       - name: Run the command plugin
+        timeout-minutes: 5
         run: swift package similarity --format xcode
 
       # Build the package with Xcode's build system, as an Xcode project that depends on it would.
+      # Runs even when an earlier step failed, so this path is still checked.
       - name: Build with xcodebuild
+        if: success() || failure()
+        timeout-minutes: 15
         run: xcodebuild build -scheme swift-similarity-cli -destination 'platform=macOS,arch=arm64' -quiet
