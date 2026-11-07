@@ -433,9 +433,9 @@ refactoring plan ordered by impact. See `swift-similarity-cli scan --help` for o
 ```
 
 For [Claude Code](https://claude.com/claude-code), this repository includes a skill,
-[`.claude/skills/check-similarity/SKILL.md`](.claude/skills/check-similarity/SKILL.md), with the
+[`.claude/skills/duplication-review/SKILL.md`](.claude/skills/duplication-review/SKILL.md), with the
 same workflow in more detail: which scans to run, how to judge the pairs and how to write the plan.
-Copy it to `.claude/skills/check-similarity/` in your project (or `~/.claude/skills/` for every
+Copy it to `.claude/skills/duplication-review/` in your project (or `~/.claude/skills/` for every
 project) and ask Claude to check for duplicated code.
 
 ## Inspired
