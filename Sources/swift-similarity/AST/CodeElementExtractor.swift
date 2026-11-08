@@ -176,7 +176,7 @@ public final class CodeElementExtractor: Sendable {
     
     /// Extracts code elements, conformances and ignored declarations from one Swift file
     private func extract(fromFile filePath: String) throws -> Extraction {
-        let sourceContent = try String(contentsOf: URL(fileURLWithPath: filePath))
+        let sourceContent = try String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8)
         let sourceFile = SwiftASTParser.parseSource(sourceContent)
         let sourceLines = sourceContent.components(separatedBy: .newlines)
         

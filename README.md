@@ -4,7 +4,7 @@ A Swift tool for detecting similar code patterns using tree edit distance algori
 
 ## Installation
 
-Requires Swift 6.1 or later, on macOS 11 or later or Linux. The latest release is
+Requires Swift 6.2 or later, on macOS 26 or later or Linux. The latest release is
 [0.0.2](https://github.com/elmetal/swift-similarity/releases/tag/0.0.2).
 
 ### Command-line tool
