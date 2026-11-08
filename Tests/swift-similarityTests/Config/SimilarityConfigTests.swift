@@ -154,6 +154,19 @@ func testFindWalksUp() throws {
     #expect(try SimilarityConfig.load(from: found).threshold == 0.6)
 }
 
+@Test("find(from:) stops at the root directory")
+func testFindStopsAtRoot() throws {
+    let root = URL(fileURLWithPath: "/")
+    try #require(!FileManager.default.fileExists(atPath: root.appendingPathComponent(SimilarityConfig.fileName).path))
+    #expect(SimilarityConfig.find(from: root) == nil)
+
+    let nested = FileManager.default.temporaryDirectory
+        .appendingPathComponent("swift-similarity-config-\(UUID().uuidString)/a")
+    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: nested.deletingLastPathComponent()) }
+    #expect(SimilarityConfig.find(from: nested) == nil)
+}
+
 // MARK: - Precedence
 
 @Test("Command-line values override the config file, which overrides the defaults")

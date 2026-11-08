@@ -87,18 +87,18 @@ public struct SimilarityConfig: Equatable, Sendable {
 
     /// Finds the nearest `similarity.toml` in `directory` or one of its parents.
     public static func find(from directory: URL) -> URL? {
-        var current = directory.standardizedFileURL
-        while true {
-            let candidate = current.appendingPathComponent(fileName)
+        // Walk the path components instead of calling `deletingLastPathComponent()` until it
+        // stops changing: on some macOS versions the parent of `/` is `/..`, so that loop never
+        // ends.
+        let components = directory.standardizedFileURL.pathComponents
+        for count in stride(from: components.count, through: 1, by: -1) {
+            let path = NSString.path(withComponents: Array(components.prefix(count)))
+            let candidate = URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent(fileName)
             if FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate
             }
-            let parent = current.deletingLastPathComponent()
-            if parent.path == current.path {
-                return nil
-            }
-            current = parent
         }
+        return nil
     }
 
     /// Reads and parses a config file.

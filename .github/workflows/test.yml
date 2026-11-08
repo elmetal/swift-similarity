@@ -34,3 +34,45 @@ jobs:
       # pull request; mark intentional ones with `// similarity-ignore: <reason>`.
       - name: Check for similar code
         run: swift package similarity --format github
+
+  test-macos:
+    name: swift test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test --skip-build
+
+      # Check the Xcode warning format with the tool itself, outside the plugin sandbox.
+      - name: Run the tool directly
+        timeout-minutes: 5
+        run: swift run --skip-build swift-similarity-cli scan Sources --format xcode
+
+      # Run the command plugin through SwiftPM on macOS, where plugins run in the sandbox. The
+      # Ubuntu job already annotates the pull request. The timeouts make a hang fail quickly.
+      - name: Run the command plugin
+        timeout-minutes: 5
+        run: swift package similarity --format xcode
+
+      # Build the package with Xcode's build system, as an Xcode project that depends on it would.
+      # Runs even when an earlier step failed, so this path is still checked.
+      - name: Build with xcodebuild
+        if: success() || failure()
+        timeout-minutes: 15
+        run: xcodebuild build -scheme swift-similarity-cli -destination 'platform=macOS,arch=arm64' -quiet
