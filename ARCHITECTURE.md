@@ -242,7 +242,7 @@ removed together with the `--optimization` and `--hierarchical` options.
 
 ### 5. Swift structured concurrency
 - **Benefit**: Type-safe parallel processing (`Sendable` models, `TaskGroup`)
-- **Trade-off**: Requires macOS 11+ (package platform) and Swift 6.1 tools
+- **Trade-off**: Requires macOS 26+ (package platform) and Swift 6.2 tools
 
 ## Testing Strategy
 

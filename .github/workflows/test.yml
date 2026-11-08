@@ -13,7 +13,7 @@ jobs:
   test:
     name: swift test (Ubuntu)
     runs-on: ubuntu-latest
-    container: swift:6.1
+    container: swift:6.2
     steps:
       - uses: actions/checkout@v7
 
@@ -21,8 +21,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .build
-          key: ${{ runner.os }}-swift-6.1-spm-${{ hashFiles('Package.resolved') }}
-          restore-keys: ${{ runner.os }}-swift-6.1-spm-
+          key: ${{ runner.os }}-swift-6.2-spm-${{ hashFiles('Package.resolved') }}
+          restore-keys: ${{ runner.os }}-swift-6.2-spm-
 
       - name: Build
         run: swift build --build-tests
@@ -37,7 +37,7 @@ jobs:
 
   test-macos:
     name: swift test (macOS)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
 
@@ -50,8 +50,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
-          restore-keys: ${{ runner.os }}-spm-
+          key: ${{ runner.os }}-macos-26-spm-${{ hashFiles('Package.resolved') }}
+          restore-keys: ${{ runner.os }}-macos-26-spm-
 
       - name: Build
         run: swift build --build-tests

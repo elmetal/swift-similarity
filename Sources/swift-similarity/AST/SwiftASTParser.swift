@@ -13,7 +13,7 @@ public class SwiftASTParser {
     /// - Throws: File reading errors
     public static func parseFile(at path: String) throws -> SourceFileSyntax {
         let url = URL(fileURLWithPath: path)
-        let source = try String(contentsOf: url)
+        let source = try String(contentsOf: url, encoding: .utf8)
         return Parser.parse(source: source)
     }
     
