@@ -82,7 +82,8 @@ public enum DiagnosticFormatter {
         return text + " [swift-similarity]"
     }
 
-    private static func displayPath(_ path: String, relativeTo baseDirectory: String?) -> String {
+    /// `path` relative to `baseDirectory` when it is inside it; otherwise (or with nil) unchanged.
+    public static func displayPath(_ path: String, relativeTo baseDirectory: String?) -> String {
         guard let baseDirectory else { return path }
         let base = baseDirectory.hasSuffix("/") ? baseDirectory : baseDirectory + "/"
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path

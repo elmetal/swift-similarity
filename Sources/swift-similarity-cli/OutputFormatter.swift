@@ -20,6 +20,17 @@ struct OutputFormatter {
     let grouped: Bool
     /// Matching pairs left out because of `--max-pairs`
     let omittedPairCount: Int
+    /// JSON paths under this directory are written relative to it (nil: as they are)
+    var jsonPathBase: String? = FileManager.default.currentDirectoryPath
+    
+    /// Location of a declaration in JSON output
+    private func jsonLocation(_ filePath: String, _ startLine: Int, _ endLine: Int) -> CodeElementLocation {
+        CodeElementLocation(
+            file: DiagnosticFormatter.displayPath(filePath, relativeTo: jsonPathBase),
+            startLine: startLine,
+            endLine: endLine
+        )
+    }
     
     /// Computes the additional metrics for a pair when `--advanced` is set.
     /// They are reported alongside the TSED score and do not affect which pairs are found.
@@ -77,18 +88,10 @@ struct OutputFormatter {
                     elementType: pair.0.elementType.rawValue,
                     elementName1: pair.0.name,
                     elementName2: pair.1.name,
-                    location1: CodeElementLocation(
-                        file: pair.0.filePath,
-                        startLine: pair.0.startLine,
-                        endLine: pair.0.endLine
-                    ),
-                    location2: CodeElementLocation(
-                        file: pair.1.filePath,
-                        startLine: pair.1.startLine,
-                        endLine: pair.1.endLine
-                    ),
-                    codePreview1: printCodePreviews ? pair.0.codePreview : "",
-                    codePreview2: printCodePreviews ? pair.1.codePreview : "",
+                    location1: jsonLocation(pair.0.filePath, pair.0.startLine, pair.0.endLine),
+                    location2: jsonLocation(pair.1.filePath, pair.1.startLine, pair.1.endLine),
+                    codePreview1: printCodePreviews ? pair.0.codePreview : nil,
+                    codePreview2: printCodePreviews ? pair.1.codePreview : nil,
                     advancedMetrics: advancedMetrics(for: pair),
                     requirement: pair.0.witness?.requirement,
                     advice: Witness.advice(for: [pair.0, pair.1])
@@ -106,8 +109,8 @@ struct OutputFormatter {
                         SimilarGroup.Member(
                             elementType: member.elementType.rawValue,
                             name: member.name,
-                            location: CodeElementLocation(file: member.filePath, startLine: member.startLine, endLine: member.endLine),
-                            codePreview: printCodePreviews ? member.codePreview : ""
+                            location: jsonLocation(member.filePath, member.startLine, member.endLine),
+                            codePreview: printCodePreviews ? member.codePreview : nil
                         )
                     }
                 )
@@ -116,18 +119,14 @@ struct OutputFormatter {
                 ScanResult.IgnoredEntry(
                     elementType: declaration.elementType.rawValue,
                     name: declaration.name,
-                    location: CodeElementLocation(
-                        file: declaration.filePath,
-                        startLine: declaration.startLine,
-                        endLine: declaration.endLine
-                    ),
+                    location: jsonLocation(declaration.filePath, declaration.startLine, declaration.endLine),
                     comment: declaration.comment
                 )
             }
         )
         
         let encoder = JSONEncoder()
-        encoder.outputFormatting = .prettyPrinted
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let jsonData = try encoder.encode(result)
         let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
         

@@ -22,9 +22,17 @@ public struct MemberSimilarityScanner: Sendable {
 
     /// Elements with fewer members than this are skipped.
     public let minimumMemberCount: Int
+    /// Maximum number of concurrent tasks (0 = number of cores)
+    public let maxConcurrency: Int
 
-    public init(minimumMemberCount: Int = defaultMinimumMemberCount) {
+    /// Number of tasks a scan runs concurrently
+    public var workerCount: Int {
+        maxConcurrency > 0 ? maxConcurrency : ProcessInfo.processInfo.processorCount
+    }
+
+    public init(minimumMemberCount: Int = defaultMinimumMemberCount, maxConcurrency: Int = 0) {
         self.minimumMemberCount = minimumMemberCount
+        self.maxConcurrency = maxConcurrency
     }
 
     /// Finds every pair of `elements` whose member similarity is at least `threshold`, most
@@ -61,7 +69,7 @@ public struct MemberSimilarityScanner: Sendable {
             var ruledOut = 0
             var compared = 0
         }
-        let rows = Array(elements.indices).concurrentMap { i -> Row in
+        let rows = Array(elements.indices).concurrentMap(maxConcurrency: maxConcurrency) { i -> Row in
             var row = Row()
             for j in (i + 1)..<elements.count {
                 guard let group = groups[i], group == groups[j] else {
@@ -104,7 +112,7 @@ public struct MemberSimilarityScanner: Sendable {
             pairsRuledOutByUpperBound: rows.reduce(0) { $0 + $1.ruledOut },
             pairsCompared: rows.reduce(0) { $0 + $1.compared },
             similarPairs: indexedPairs.count,
-            workerCount: ProcessInfo.processInfo.processorCount,
+            workerCount: workerCount,
             fingerprintTime: 0,
             comparisonTime: ProcessInfo.processInfo.systemUptime - startTime
         )

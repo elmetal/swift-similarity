@@ -41,3 +41,12 @@ func testManyMatches() {
     #expect(first?.hasSuffix("and 3 more [swift-similarity]") == true)
     #expect(first?.components(separatedBy: "function copy").count == DiagnosticFormatter.maximumNamedMatches + 1)
 }
+
+@Test("displayPath makes paths inside the base directory relative")
+func testDisplayPath() {
+    #expect(DiagnosticFormatter.displayPath("/repo/Sources/A.swift", relativeTo: "/repo") == "Sources/A.swift")
+    #expect(DiagnosticFormatter.displayPath("/repo/Sources/A.swift", relativeTo: "/repo/") == "Sources/A.swift")
+    #expect(DiagnosticFormatter.displayPath("/repository/A.swift", relativeTo: "/repo") == "/repository/A.swift")
+    #expect(DiagnosticFormatter.displayPath("/other/A.swift", relativeTo: "/repo") == "/other/A.swift")
+    #expect(DiagnosticFormatter.displayPath("/repo/A.swift", relativeTo: nil) == "/repo/A.swift")
+}
