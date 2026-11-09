@@ -57,8 +57,9 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Optional code previews
 - With `--show-ignored`, lists the declarations skipped by `similarity-ignore` comments
 - `--format xcode` / `--format github` write one warning per declaration (`DiagnosticFormatter`)
-- With `--group`, shows groups of mutually similar declarations (`SimilarityGrouping`, complete
-  linkage over the reported pairs) and then the pairs between groups
+- By default (`--group`), shows groups of mutually similar declarations (`SimilarityGrouping`,
+  complete linkage over the reported pairs) and then the pairs between groups, in text and JSON;
+  `--no-group` lists every pair
 - `--filter-name` / `--filter-code` keep the pairs involving a matching declaration (`PairFilter`
   in `Sources/swift-similarity/Output/`); every pair is still compared
 

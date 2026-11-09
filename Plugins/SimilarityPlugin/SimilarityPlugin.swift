@@ -8,7 +8,7 @@ import PackagePlugin
 /// argument is passed to `scan`, so all of its options work, for example:
 ///
 /// ```bash
-/// swift package similarity --threshold 0.85 --group
+/// swift package similarity --threshold 0.85 --sort priority
 /// swift package similarity --target App --format github --fail-on-duplicates
 /// ```
 ///

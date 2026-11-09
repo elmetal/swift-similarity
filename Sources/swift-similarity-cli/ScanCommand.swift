@@ -88,7 +88,7 @@ struct ScanCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Also list the declarations skipped because of a 'similarity-ignore' comment")
     var showIgnored: Bool = false
     
-    @Flag(inversion: .prefixedNo, help: "Report groups of declarations that are all similar to each other instead of every pair; pairs between groups are listed after them (default: off)")
+    @Flag(inversion: .prefixedNo, help: "Report groups of declarations that are all similar to each other instead of every pair; pairs between groups are listed after them (default: on; --no-group lists every pair)")
     var group: Bool?
     
     @Option(name: .long, help: ArgumentHelp("Report at most this many pairs, the most similar first (0 for no limit); the number of pairs found is still shown, and --fail-on-duplicates still counts them all (default: \(ScanSettings.defaultMaxPairs))", valueName: "count"))
@@ -247,7 +247,7 @@ struct ScanCommand: AsyncParsableCommand {
                 printDiagnostic("Found \(result.statistics.similarPairs) similar pairs, \(result.matchingPairCount) matching the filter")
             }
             if result.omittedPairCount > 0 {
-                printDiagnostic("Reporting the \(similarPairs.count) most similar pairs; \(result.omittedPairCount) more are not shown (--max-pairs \(settings.maxPairs); 0 for no limit). Consider --group, --exclude for generated code, or a higher --threshold or --min-lines.")
+                printDiagnostic("Reporting the \(similarPairs.count) most similar pairs; \(result.omittedPairCount) more are not shown (--max-pairs \(settings.maxPairs); 0 for no limit). Consider --exclude for generated code, or a higher --threshold or --min-lines.")
             }
             if showIgnored && !settings.ignoreDirectives {
                 printDiagnostic("Note: --show-ignored lists nothing because similarity-ignore comments are not honored (--no-ignore-directives)")
@@ -276,8 +276,10 @@ struct ScanCommand: AsyncParsableCommand {
             )
             
             if let style = DiagnosticFormatter.Style(rawValue: format) {
-                if settings.group || showIgnored || showCode || advanced {
-                    printDiagnostic("Note: --format \(format) writes one warning per declaration; --group, --show-ignored, --print and --advanced do not apply")
+                // Grouping (the default) is not mentioned: these formats name every similar
+                // declaration in each warning anyway.
+                if showIgnored || showCode || advanced {
+                    printDiagnostic("Note: --format \(format) writes one warning per declaration; --show-ignored, --print and --advanced do not apply")
                 }
                 // GitHub resolves annotation paths against the repository root, which is the
                 // working directory of a workflow step; Xcode needs absolute paths to open files.

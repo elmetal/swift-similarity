@@ -69,6 +69,10 @@ struct OutputFormatter {
     
     /// Outputs results in JSON format
     func outputJSON(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) throws {
+        // Grouped, the pairs within a group are summarized by the group and only the pairs between
+        // groups are listed, as in the text output.
+        let grouping = grouped ? SimilarityGrouping.group(similarPairs, by: sortOrder) : nil
+        let listedPairs = grouping?.pairsBetweenGroups ?? similarPairs
         let result = ScanResult(
             summary: ScanResult.Summary(
                 totalPairs: similarPairs.count + omittedPairCount,
@@ -78,9 +82,10 @@ struct OutputFormatter {
                 compare: compare,
                 renameCost: compare == "members" ? nil : costs.substitution,
                 advancedMetrics: advanced,
-                sortOrder: sortOrder.rawValue
+                sortOrder: sortOrder.rawValue,
+                grouped: grouped
             ),
-            similarPairs: similarPairs.map { pair in
+            similarPairs: listedPairs.map { pair in
                 SimilarPair(
                     similarity: pair.2 * 100,
                     priority: SimilarityRanking.priority(of: pair),
@@ -97,7 +102,7 @@ struct OutputFormatter {
                     advice: Witness.advice(for: [pair.0, pair.1])
                 )
             },
-            groups: grouped ? SimilarityGrouping.group(similarPairs, by: sortOrder).groups.map { group in
+            groups: grouping?.groups.map { group in
                 SimilarGroup(
                     minimumSimilarity: group.minimumSimilarity * 100,
                     maximumSimilarity: group.maximumSimilarity * 100,
@@ -114,7 +119,7 @@ struct OutputFormatter {
                         )
                     }
                 )
-            } : nil,
+            },
             ignored: ignored?.map { declaration in
                 ScanResult.IgnoredEntry(
                     elementType: declaration.elementType.rawValue,
