@@ -274,7 +274,9 @@ JSON (`requirement`, `advice`), Xcode and GitHub output.
 
 ### Performance
 `scan` uses every core. `--threads N` limits the number of parallel tasks. `--stats` shows how many
-pairs were skipped by the exact filters and how long each phase took.
+pairs were skipped by the exact filters and how long each phase took (with `--compare members`,
+which compares member lists rather than syntax trees, it leaves out distinct trees and
+fingerprinting).
 
 Declarations with identical syntax trees, common in generated code, are compared once: copies
 score 100% with each other, and every copy scores the same against any other declaration. The
@@ -301,6 +303,12 @@ swift run swift-similarity-cli scan Sources/ --print
 # Also report structural, label and depth similarity for each pair
 swift run swift-similarity-cli scan Sources/ --advanced
 ```
+
+### JSON output
+`--format json` writes a `summary`, the `similarPairs` and, with `--group` or `--show-ignored`,
+`groups` and `ignored`. File paths under the current directory are relative to it (as in
+`--format github`); other files keep their absolute paths. `codePreview1`, `codePreview2` and the
+groups' `codePreview` are only present with `--print`.
 
 ### Ranking and CI
 ```bash

@@ -132,3 +132,33 @@ func testMaxPairsSetting() throws {
     #expect(ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil).maxPairs == ScanSettings.defaultMaxPairs)
     #expect(ScanSettings.resolve(commandLine: SimilarityConfig(maxPairs: 5), file: SimilarityConfig(maxPairs: 0)).maxPairs == 5)
 }
+
+@Test("The member scanner gives the same result with a limited number of tasks")
+func testMemberScannerConcurrencyLimit() {
+    func type(_ name: String, line: Int, fields: Int) -> CodeElement {
+        CodeElement(
+            elementType: .struct, name: name, signature: name, filePath: "/t.swift", startLine: line, endLine: line,
+            codePreview: "", treeNode: SimpleTreeNode(label: name), byteRange: line * 100..<(line * 100 + 10),
+            members: (0..<fields).map { TypeMember(kind: .property, name: "f\($0)", type: "Int") }
+        )
+    }
+    let elements = (0..<20).map { type("T\($0)", line: $0, fields: 2 + $0 % 3) }
+    let all = MemberSimilarityScanner().scan(elements, threshold: 0.6)
+    for maxConcurrency in [1, 3, 64] {
+        let scanner = MemberSimilarityScanner(maxConcurrency: maxConcurrency)
+        let limited = scanner.scan(elements, threshold: 0.6)
+        #expect(scanner.workerCount == maxConcurrency)
+        #expect(limited.statistics.workerCount == maxConcurrency)
+        #expect(limited.pairs.map { "\($0.first.name)/\($0.second.name)/\($0.similarity)" } == all.pairs.map { "\($0.first.name)/\($0.second.name)/\($0.similarity)" })
+        #expect(limited.statistics.pairsCompared == all.statistics.pairsCompared)
+    }
+}
+
+@Test("concurrentMap keeps the order of the elements with a concurrency limit")
+func testConcurrentMapLimit() {
+    let numbers = Array(0..<1000)
+    for maxConcurrency in [0, 1, 7, 2000] {
+        #expect(numbers.concurrentMap(maxConcurrency: maxConcurrency) { $0 * 2 } == numbers.map { $0 * 2 })
+    }
+    #expect([Int]().concurrentMap(maxConcurrency: 4) { $0 }.isEmpty)
+}

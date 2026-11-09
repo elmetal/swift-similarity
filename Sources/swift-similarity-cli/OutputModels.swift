@@ -4,6 +4,7 @@ import Foundation
 
 /// Location information for a code element
 struct CodeElementLocation: Codable {
+    /// Path relative to the current directory, or absolute for a file outside it
     let file: String
     let startLine: Int
     let endLine: Int
@@ -22,8 +23,9 @@ struct SimilarPair: Codable {
     let elementName2: String
     let location1: CodeElementLocation
     let location2: CodeElementLocation
-    let codePreview1: String
-    let codePreview2: String
+    /// Source of the declarations; only with `--print`
+    let codePreview1: String?
+    let codePreview2: String?
     /// Additional metrics, present only with `--advanced`
     let advancedMetrics: AdvancedMetrics?
     /// `Protocol.requirement` both declarations implement; only with `--compare witnesses`
@@ -99,6 +101,7 @@ struct SimilarGroup: Codable {
         let elementType: String
         let name: String
         let location: CodeElementLocation
-        let codePreview: String
+        /// Source of the declaration; only with `--print`
+        let codePreview: String?
     }
 }

@@ -228,7 +228,7 @@ struct ScanCommand: AsyncParsableCommand {
             case .tree:
                 result = try await treeScanner.scan(elements, threshold: threshold, maxPairs: maxPairs, including: pairFilter.predicate)
             case .members:
-                result = MemberSimilarityScanner().scan(
+                result = MemberSimilarityScanner(maxConcurrency: threads).scan(
                     elements, threshold: threshold, conformances: extraction.conformances,
                     maxPairs: maxPairs, including: pairFilter.predicate
                 )
@@ -437,7 +437,12 @@ struct ScanCommand: AsyncParsableCommand {
             String(format: "%.1f%%", stats.totalPairs > 0 ? Double(count) / Double(stats.totalPairs) * 100 : 0)
         }
         printDiagnostic("\n=== Scan Statistics ===")
-        printDiagnostic("Elements: \(stats.elementCount) (\(stats.distinctTreeCount) distinct trees)")
+        // `--compare members` compares member lists, not syntax trees, and has no fingerprint phase.
+        if mode == .members {
+            printDiagnostic("Elements: \(stats.elementCount)")
+        } else {
+            printDiagnostic("Elements: \(stats.elementCount) (\(stats.distinctTreeCount) distinct trees)")
+        }
         printDiagnostic("Threads: \(stats.workerCount)")
         printDiagnostic("Total pairs: \(stats.totalPairs)")
         printDiagnostic("  Nested (skipped): \(stats.nestedPairs) (\(percent(stats.nestedPairs)))")
@@ -456,7 +461,9 @@ struct ScanCommand: AsyncParsableCommand {
             printDiagnostic("  Identical trees (no comparison): \(stats.identicalPairs) (\(percent(stats.identicalPairs)))")
         }
         printDiagnostic("Similar pairs: \(stats.similarPairs)")
-        printDiagnostic("Fingerprint time: \(String(format: "%.3f", stats.fingerprintTime))s")
+        if mode != .members {
+            printDiagnostic("Fingerprint time: \(String(format: "%.3f", stats.fingerprintTime))s")
+        }
         printDiagnostic("Comparison time: \(String(format: "%.3f", stats.comparisonTime))s")
         printDiagnostic("Total time: \(String(format: "%.3f", stats.totalTime))s")
         printDiagnostic("=======================\n")

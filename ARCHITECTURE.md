@@ -136,6 +136,7 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 **ScanStatistics**
 - How many pairs were nested, ruled out by the upper bound, compared with TSED or identical, the
   number of distinct trees and similar pairs, and the time of each phase; reported by `scan --stats`
+  (without distinct trees and fingerprinting for `--compare members`, which compares no trees)
 
 ### 5b. Member Comparison (`Sources/swift-similarity/Members/`)
 
