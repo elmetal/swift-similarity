@@ -104,13 +104,13 @@ func testRenameCost() throws {
     #expect(fromCLI.renameCost == 0.5)
 }
 
-@Test("Reads group, and the command line can turn it off")
+@Test("Groups by default; the file and the command line can turn it off")
 func testGroupSetting() throws {
-    let config = try SimilarityConfig.parse("group = true\n")
-    #expect(config.group == true)
-    #expect(ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil).group == false)
-    #expect(ScanSettings.resolve(commandLine: SimilarityConfig(), file: config).group == true)
-    #expect(ScanSettings.resolve(commandLine: SimilarityConfig(group: false), file: config).group == false)
+    let config = try SimilarityConfig.parse("group = false\n")
+    #expect(config.group == false)
+    #expect(ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil).group == true)
+    #expect(ScanSettings.resolve(commandLine: SimilarityConfig(), file: config).group == false)
+    #expect(ScanSettings.resolve(commandLine: SimilarityConfig(group: true), file: config).group == true)
 }
 
 @Test("Reads compare, and members mode defaults the element type to all types")

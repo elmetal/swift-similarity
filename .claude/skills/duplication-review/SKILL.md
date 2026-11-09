@@ -21,7 +21,7 @@ Start broad, then narrow:
 
 ```bash
 # Functions (default), the most impactful duplicates first, copies grouped together
-swift-similarity-cli scan Sources --sort priority --group
+swift-similarity-cli scan Sources --sort priority
 
 # Every kind of declaration, with code so you can judge each pair
 swift-similarity-cli scan Sources --element-type all --sort priority --print
@@ -60,12 +60,12 @@ group of similar declarations, decide whether it is:
   and consider `--exclude`.
 
 Prefer the pairs with the highest priority (`--sort priority`): similarity × lines, so large
-duplicates come first. With `--group`, declarations that are all similar to each other are listed
-as one group, followed by the pairs between groups.
+duplicates come first. Declarations that are all similar to each other are listed as one group
+(the default; `--no-group` lists every pair), followed by the pairs between groups.
 
 ## Writing the plan
 
-Work from the groups that `--group` reports (every two declarations in a group are similar), and
+Work from the groups that `scan` reports (every two declarations in a group are similar), and
 check the pairs between groups for declarations that belong with a group. For each group, give the
 declarations with `file:line` locations, what they share and how they differ, the proposed
 refactoring, and its risk (behavior differences to preserve, public API changes, tests to run). Order the groups by expected benefit. Don't change code until the user has agreed to the

@@ -132,7 +132,7 @@ sort = "priority"                      # --sort (default "similarity")
 fail_on_duplicates = true              # --fail-on-duplicates / --no-fail-on-duplicates (default false)
 rename_cost = 1.0                      # --rename-cost (default 1.0)
 compare = "members"                    # --compare: "tree" (default), "members" or "witnesses"
-group = true                           # --group / --no-group (default false)
+group = false                          # --group / --no-group (default true)
 max_pairs = 0                          # --max-pairs (default 10000; 0 for no limit)
 ```
 
@@ -289,8 +289,8 @@ At most 10,000 pairs are reported, the most similar first, so that a codebase wi
 does not produce a report nobody can read. The number of pairs found is still shown, filters
 (`--filter-name`, `--filter-code`) apply before the limit, and `--fail-on-duplicates` counts every
 matching pair. `--max-pairs N` changes the limit, and `--max-pairs 0` removes it (`max_pairs` in
-`similarity.toml`). When the limit is reached, `--group`, `--exclude` for generated code, or a
-higher `--threshold` or `--min-lines` usually help more than a higher limit.
+`similarity.toml`). When the limit is reached, `--exclude` for generated code, or a higher
+`--threshold` or `--min-lines` usually help more than a higher limit.
 
 ### Advanced options
 ```bash
@@ -305,8 +305,8 @@ swift run swift-similarity-cli scan Sources/ --advanced
 ```
 
 ### JSON output
-`--format json` writes a `summary`, the `similarPairs` and, with `--group` or `--show-ignored`,
-`groups` and `ignored`. File paths under the current directory are relative to it (as in
+`--format json` writes a `summary`, the `groups` (unless `--no-group`), the `similarPairs` (with
+groups, only the pairs between groups) and, with `--show-ignored`, the `ignored` declarations. File paths under the current directory are relative to it (as in
 `--format github`); other files keep their absolute paths. `codePreview1`, `codePreview2` and the
 groups' `codePreview` are only present with `--print`.
 
@@ -332,12 +332,8 @@ The results go to stdout (or `--output`) as usual and diagnostics to stderr; inv
 exit with code 64.
 
 ### Grouping copies
-```bash
-swift run swift-similarity-cli scan Sources/ --group
-```
-
-When n declarations are copies of each other, there are n(n−1)/2 similar pairs. `--group` reports
-them as one group instead:
+When n declarations are copies of each other, there are n(n−1)/2 similar pairs. They are reported
+as one group instead:
 
 ```
 1. 4 Structs, similarity 100.00%
@@ -357,10 +353,18 @@ are listed after the groups, so no pair is dropped.
 Groups are sorted by their most similar pair, or with `--sort priority` by
 **(declarations − 1) × lines of the smallest × lowest similarity**, roughly the lines that merging
 the copies would remove (for two declarations, the same as the pair's priority). In JSON,
-`groups` lists each group's members, similarity range, priority and lines, and `similarPairs`
-still lists every reported pair. `--fail-on-duplicates` still counts pairs.
+`groups` lists each group's members, similarity range, priority and lines, `similarPairs` lists
+the pairs between groups, and `summary.grouped` is true. `summary.totalPairs` and
+`--fail-on-duplicates` still count every pair.
 
 On swift-syntax (functions at 0.8), 375 pairs become 109 groups plus 36 pairs between groups.
+
+Grouping is on by default. `--no-group` (or `group = false` in `similarity.toml`) lists every pair
+instead, in the text and in `similarPairs`:
+
+```bash
+swift run swift-similarity-cli scan Sources/ --no-group
+```
 
 ## Xcode, CI and SwiftPM
 
@@ -378,7 +382,7 @@ declarations, naming them, most similar first:
   (`::warning file=...,line=...::...`) that annotate the lines in a pull request. Paths are made
   relative to the current directory, which is the repository root in a workflow step.
 
-All scan options apply. `--group`, `--show-ignored`, `--print` and `--advanced` do not change these
+All scan options apply. Grouping, `--show-ignored`, `--print` and `--advanced` do not change these
 formats. Add `--fail-on-duplicates` to fail the build or the job when anything is found.
 
 ### SwiftPM command plugin
@@ -396,7 +400,7 @@ dependencies: [
 swift package similarity
 
 # Some targets, with any scan option
-swift package similarity --target App --target Core --group --sort priority
+swift package similarity --target App --target Core --sort priority
 swift package similarity --format github --fail-on-duplicates
 ```
 

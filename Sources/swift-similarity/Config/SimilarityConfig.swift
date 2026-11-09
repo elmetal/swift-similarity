@@ -20,7 +20,7 @@ import Foundation
 /// fail_on_duplicates = false  # --fail-on-duplicates / --no-fail-on-duplicates
 /// rename_cost = 1.0           # --rename-cost
 /// compare = "tree"           # --compare ("tree", "members" or "witnesses")
-/// group = false              # --group / --no-group
+/// group = true               # --group / --no-group
 /// max_pairs = 10000           # --max-pairs (0 for no limit)
 /// ```
 ///
@@ -220,7 +220,7 @@ public struct ScanSettings: Equatable, Sendable {
     /// What is compared: "tree" (whole syntax trees, TSED), "members" (members of types) or
     /// "witnesses" (bodies of implementations of the same protocol requirement).
     public var compare: String
-    /// Report groups of mutually similar declarations instead of a flat list of pairs.
+    /// Report groups of mutually similar declarations instead of a flat list of pairs (default).
     public var group: Bool
     /// Report at most this many pairs, the most similar first; 0 for no limit.
     public var maxPairs: Int
@@ -237,7 +237,7 @@ public struct ScanSettings: Equatable, Sendable {
         failOnDuplicates: Bool = false,
         renameCost: Double = defaultRenameCost,
         compare: String = defaultCompare,
-        group: Bool = false,
+        group: Bool = true,
         maxPairs: Int = defaultMaxPairs
     ) {
         self.maxPairs = maxPairs
