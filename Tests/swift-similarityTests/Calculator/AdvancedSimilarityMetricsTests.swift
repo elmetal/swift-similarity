@@ -81,3 +81,17 @@ func testCustomWeights() {
     // Different weight configurations should produce different overall similarities
     #expect(structuralResult.overallSimilarity != labelResult.overallSimilarity)
 }
+
+@Test("A TSED score the caller already has is reported as is, with the same other metrics")
+func testKnownTSEDIsReused() {
+    let tree1 = SimpleTreeNode(label: "A", children: [SimpleTreeNode(label: "B"), SimpleTreeNode(label: "C")])
+    let tree2 = SimpleTreeNode(label: "A", children: [SimpleTreeNode(label: "B")])
+    let metrics = AdvancedSimilarityMetrics()
+    let computed = metrics.calculateAdvancedSimilarity(between: tree1, and: tree2)
+    let reused = metrics.calculateAdvancedSimilarity(between: tree1, and: tree2, tsed: computed.aptedSimilarity)
+
+    #expect(abs(computed.aptedSimilarity - 2.0 / 3.0) < 1e-9)
+    #expect(reused.aptedSimilarity == computed.aptedSimilarity)
+    #expect(reused.overallSimilarity == computed.overallSimilarity)
+    #expect(metrics.calculateAdvancedSimilarity(between: tree1, and: tree2, tsed: 0.25).aptedSimilarity == 0.25)
+}

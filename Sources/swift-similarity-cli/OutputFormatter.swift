@@ -36,7 +36,9 @@ struct OutputFormatter {
     /// They are reported alongside the TSED score and do not affect which pairs are found.
     private func advancedMetrics(for pair: (CodeElement, CodeElement, Double)) -> AdvancedMetrics? {
         guard advanced else { return nil }
-        let result = AdvancedSimilarityMetrics(configuration: .init(aptedCosts: costs)).calculateAdvancedSimilarity(between: pair.0.treeNode, and: pair.1.treeNode)
+        // The scan already computed the pair's TSED; passing it avoids a second tree edit distance.
+        let result = AdvancedSimilarityMetrics(configuration: .init(aptedCosts: costs))
+            .calculateAdvancedSimilarity(between: pair.0.treeNode, and: pair.1.treeNode, tsed: pair.2)
         return AdvancedMetrics(
             structural: result.structuralSimilarity * 100,
             label: result.labelSimilarity * 100,
