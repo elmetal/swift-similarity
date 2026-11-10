@@ -23,4 +23,4 @@ public struct SimpleTreeNode: TreeNode, Sendable {
         self.label = label
         self.children = children
     }
-} 
+}

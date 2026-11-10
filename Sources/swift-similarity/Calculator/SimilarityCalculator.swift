@@ -137,6 +137,4 @@ public class SimilarityCalculator {
         }
         return count
     }
-    
-
-} 
+}
