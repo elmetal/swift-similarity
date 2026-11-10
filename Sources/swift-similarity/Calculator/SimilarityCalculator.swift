@@ -71,7 +71,9 @@ public class SimilarityCalculator {
         
         // TSED normalization (arXiv:2404.08817): max(1 - δ / MaxNodes(G1, G2), 0).
         // The ramp keeps the score in [0, 1] when operation costs exceed 1.
-        let maxPossibleDistance = Double(max(countNodes(tree1), countNodes(tree2)))
+        let nodeCount1 = countNodes(tree1)
+        let nodeCount2 = countNodes(tree2)
+        let maxPossibleDistance = Double(max(nodeCount1, nodeCount2))
         let similarityScore = maxPossibleDistance > 0 ? max(1.0 - (editDistance / maxPossibleDistance), 0.0) : 1.0
         
         // Determine if trees are similar
@@ -79,8 +81,8 @@ public class SimilarityCalculator {
         
         // Collect metadata
         let metadata: [String: Any] = [
-            "tree1_node_count": countNodes(tree1),
-            "tree2_node_count": countNodes(tree2),
+            "tree1_node_count": nodeCount1,
+            "tree2_node_count": nodeCount2,
             "max_possible_distance": maxPossibleDistance,
             "threshold": configuration.similarityThreshold
         ]
