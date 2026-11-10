@@ -178,7 +178,7 @@ public final class CodeElementExtractor: Sendable {
     private func extract(fromFile filePath: String) throws -> Extraction {
         let sourceContent = try String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8)
         let sourceFile = SwiftASTParser.parseSource(sourceContent)
-        let sourceLines = sourceContent.components(separatedBy: .newlines)
+        let sourceLines = Self.lines(of: sourceContent)
         
         let visitor = CodeElementVisitor(
             filePath: filePath,
@@ -197,6 +197,13 @@ public final class CodeElementExtractor: Sendable {
         )
     }
     
+    /// The lines of `source` as SwiftSyntax numbers them: a line ends at "\n", "\r\n" or "\r".
+    /// (`CharacterSet.newlines` would split "\r\n" in two and also split at characters such as
+    /// U+2028, so previews of those files would show the wrong lines.)
+    static func lines(of source: String) -> [String] {
+        source.split(omittingEmptySubsequences: false) { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }.map(String.init)
+    }
+
     /// Extracts code elements from a directory
     /// - Parameter directoryPath: Path to directory containing Swift files
     /// - Returns: Array of all extracted code elements
