@@ -57,14 +57,12 @@ struct OutputFormatter {
     
     /// Outputs results in text format
     func outputText(similarPairs: [(CodeElement, CodeElement, Double)], to outputFile: String?) throws {
-        let output = generateTextOutput(similarPairs: similarPairs)
-        
-        if let outputFile = outputFile {
-            try output.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
-            printDiagnostic("Results written to: \(outputFile)")
-        } else {
-            print(output)
+        // `write` ends the output with one newline, whatever the last section ends with.
+        var output = generateTextOutput(similarPairs: similarPairs)
+        while output.hasSuffix("\n") {
+            output.removeLast()
         }
+        try write(output, to: outputFile)
     }
     
     /// Outputs results in JSON format
@@ -133,14 +131,7 @@ struct OutputFormatter {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let jsonData = try encoder.encode(result)
-        let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
-        
-        if let outputFile = outputFile {
-            try jsonString.write(to: URL(fileURLWithPath: outputFile), atomically: true, encoding: .utf8)
-            printDiagnostic("JSON results written to: \(outputFile)")
-        } else {
-            print(jsonString)
-        }
+        try write(String(decoding: jsonData, as: UTF8.self), to: outputFile)
     }
     
     private var orderDescription: String {
