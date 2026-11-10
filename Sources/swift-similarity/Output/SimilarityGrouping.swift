@@ -24,10 +24,10 @@ public enum SimilarityGrouping {
         /// The pairs among the members (every two members form one), most similar first.
         public let pairs: [Pair]
 
-        /// Similarity of the least similar pair of members.
-        public var minimumSimilarity: Double { pairs.map(\.2).min() ?? 0 }
+        /// Similarity of the least similar pair of members (`pairs` is sorted, so the last one).
+        public var minimumSimilarity: Double { pairs.last?.2 ?? 0 }
         /// Similarity of the most similar pair of members.
-        public var maximumSimilarity: Double { pairs.map(\.2).max() ?? 0 }
+        public var maximumSimilarity: Double { pairs.first?.2 ?? 0 }
         /// Line span of the smallest member: at most this many lines are duplicated per copy.
         public var lines: Int { members.map(SimilarityRanking.lineSpan(of:)).min() ?? 0 }
         /// Impact of the group: (members − 1) × `lines` × `minimumSimilarity`. Merging the copies
