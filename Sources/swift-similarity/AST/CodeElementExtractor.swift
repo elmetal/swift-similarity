@@ -1,5 +1,4 @@
 import SwiftSyntax
-import SwiftParser
 import Foundation
 
 // MARK: - Code Element Types
@@ -183,7 +182,6 @@ public final class CodeElementExtractor: Sendable {
         let visitor = CodeElementVisitor(
             filePath: filePath,
             sourceLines: sourceLines,
-            sourceContent: sourceContent,
             sourceFile: sourceFile,
             configuration: configuration
         )
@@ -267,8 +265,6 @@ public struct IgnoredDeclaration: Sendable, Equatable {
 private class CodeElementVisitor: SyntaxVisitor {
     let filePath: String
     let sourceLines: [String]
-    let sourceContent: String
-    let sourceFile: SourceFileSyntax
     let configuration: CodeElementExtractor.Configuration
     let locationConverter: SourceLocationConverter
     var extractedElements: [CodeElement] = []
@@ -279,11 +275,9 @@ private class CodeElementVisitor: SyntaxVisitor {
     /// Members with a body that may implement a protocol requirement
     var witnessCandidates: [WitnessCandidate] = []
     
-    init(filePath: String, sourceLines: [String], sourceContent: String, sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
+    init(filePath: String, sourceLines: [String], sourceFile: SourceFileSyntax, configuration: CodeElementExtractor.Configuration) {
         self.filePath = filePath
         self.sourceLines = sourceLines
-        self.sourceContent = sourceContent
-        self.sourceFile = sourceFile
         self.configuration = configuration
         self.locationConverter = SourceLocationConverter(fileName: filePath, tree: sourceFile)
         super.init(viewMode: .sourceAccurate)
