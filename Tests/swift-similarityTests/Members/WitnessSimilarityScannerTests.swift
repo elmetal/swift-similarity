@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import swift_similarity
 
 private let witnessTypes: Set<CodeElementType> = [.function, .initializer, .property, .subscript]
@@ -178,4 +179,48 @@ func testWitnessSettingsDefaults() {
     let explicit = ScanSettings.resolve(commandLine: SimilarityConfig(minLines: 3), file: SimilarityConfig(compare: "witnesses"))
     #expect(explicit.minLines == 3)
     #expect(ScanSettings.resolve(commandLine: SimilarityConfig(), file: nil).minLines == ScanSettings.defaultMinLines)
+}
+
+@Test("Progress counts requirements instead of restarting for each of them")
+func testWitnessProgress() async throws {
+    final class Recorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var events: [SimilarityScanner.Progress] = []
+        func record(_ progress: SimilarityScanner.Progress) { lock.withLock { events.append(progress) } }
+        var all: [SimilarityScanner.Progress] { lock.withLock { events } }
+    }
+    let source = """
+        protocol Named {
+            var name: String { get }
+            var label: String { get }
+            func greet() -> String
+            func only() -> String
+        }
+        struct User: Named {
+            let name: String
+            var label: String { "[\\(name)]" }
+            func greet() -> String { "hi " + name }
+            func only() -> String { name }
+        }
+        struct Team {
+            let name: String
+        }
+        extension Team {
+            var label: String { "[\\(name)]" }
+            func greet() -> String { "hi " + name }
+        }
+        extension Team: Named {}
+        """
+    let extraction = try extraction(of: source, configuration: witnessConfiguration())
+    let recorder = Recorder()
+    let result = try await WitnessSimilarityScanner(scanner: SimilarityScanner(progressHandler: recorder.record))
+        .scan(extraction.witnessCandidates, threshold: 0.8, conformances: extraction.conformances)
+
+    // `label` and `greet()` have two implementations each; `only()` has one and is not compared.
+    #expect(result.pairs.count == 2)
+    #expect(result.statistics.elementCount == 5)
+    #expect(recorder.all.map(\.phase) == [.comparing, .comparing])
+    #expect(recorder.all.map(\.completed) == [1, 2])
+    #expect(recorder.all.allSatisfy { $0.total == 2 })
+    #expect(recorder.all.last?.pairsFound == 2)
 }

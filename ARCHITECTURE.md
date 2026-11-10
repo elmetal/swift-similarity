@@ -173,7 +173,8 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
   `WitnessCandidate`s, whose tree is the body only
 - `witnessesByRequirement(_:conformances:)` keeps the candidates that implement a requirement of a
   protocol declared in the scanned files, sets `CodeElement.witness`, and groups them by requirement
-- Each group is scanned with `SimilarityScanner` (TSED of bodies); pairs never cross requirements
+- Each group is scanned with `SimilarityScanner` (TSED of bodies); pairs never cross requirements;
+  progress is reported once per requirement
 - `Witness.advice(for:)` suggests a default implementation, or points at the existing one
 
 ### 6. Data Models (`Sources/swift-similarity/Models/`)

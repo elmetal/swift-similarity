@@ -110,6 +110,10 @@ public struct WitnessSimilarityScanner: Sendable {
     /// least `threshold`, most similar first, ties by requirement and then candidate order.
     /// Statistics count only the pairs within each requirement. `maxPairs` and `include` select the
     /// reported pairs as in `SimilarityScanner.scan`.
+    ///
+    /// Progress is reported in the `comparing` phase, once per requirement with at least two
+    /// implementations (each requirement is a small scan of its own, so reporting every scan's
+    /// phases would restart the progress for each of them).
     public func scan(
         _ candidates: [WitnessCandidate],
         threshold: Double,
@@ -117,19 +121,19 @@ public struct WitnessSimilarityScanner: Sendable {
         maxPairs: Int? = nil,
         including include: SimilarityScanner.PairPredicate? = nil
     ) async throws -> SimilarityScanner.Result {
+        let startTime = ProcessInfo.processInfo.systemUptime
         let groups = Self.witnessesByRequirement(candidates, conformances: conformances)
+        // A requirement with a single implementation has nothing to compare.
+        let comparedGroups = groups.filter { $0.count >= 2 }
+        let groupScanner = SimilarityScanner(maxConcurrency: scanner.maxConcurrency, costs: scanner.costs)
         var pairs: [SimilarityScanner.Pair] = []
-        var elementCount = 0, totalPairs = 0, nested = 0, ruledOut = 0, compared = 0
-        var distinctTrees = 0, identical = 0, similar = 0, matching = 0
+        let elementCount = groups.reduce(0) { $0 + $1.count }
+        var totalPairs = 0, nested = 0, ruledOut = 0, compared = 0
+        var distinctTrees = groups.count - comparedGroups.count, identical = 0, similar = 0, matching = 0
         var fingerprintTime = 0.0, comparisonTime = 0.0
-        for group in groups {
-            elementCount += group.count
-            guard group.count >= 2 else {
-                distinctTrees += group.count
-                continue
-            }
+        for (index, group) in comparedGroups.enumerated() {
             // Each requirement keeps at most `maxPairs`, so the most similar overall are among them.
-            let result = try await scanner.scan(group, threshold: threshold, maxPairs: maxPairs, including: include)
+            let result = try await groupScanner.scan(group, threshold: threshold, maxPairs: maxPairs, including: include)
             pairs.append(contentsOf: result.pairs)
             matching += result.matchingPairCount
             let statistics = result.statistics
@@ -142,6 +146,7 @@ public struct WitnessSimilarityScanner: Sendable {
             compared += statistics.pairsCompared
             fingerprintTime += statistics.fingerprintTime
             comparisonTime += statistics.comparisonTime
+            scanner.report(.comparing, completed: index + 1, total: comparedGroups.count, pairsFound: similar, since: startTime)
         }
         // Stable: requirement order, then the scanner's order within each requirement.
         let ordered = pairs.enumerated().sorted { ($1.element.similarity, $0.offset) < ($0.element.similarity, $1.offset) }.map(\.element)
