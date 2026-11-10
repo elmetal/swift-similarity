@@ -259,7 +259,11 @@ struct OutputFormatter {
         output += "\n"
         
         if similarPairs.isEmpty {
-            output += compare == "witnesses" ? "No similar protocol witnesses found.\n" : "No similar \(elementType) elements found.\n"
+            if compare == "witnesses" {
+                output += "No similar protocol witnesses found.\n"
+            } else {
+                output += elementType.lowercased() == "all" ? "No similar elements found.\n" : "No similar \(elementType) elements found.\n"
+            }
         } else if grouped {
             output += groupedText(similarPairs)
         } else {
