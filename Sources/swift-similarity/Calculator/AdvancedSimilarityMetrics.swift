@@ -65,10 +65,11 @@ public class AdvancedSimilarityMetrics {
     /// - Parameters:
     ///   - tree1: First tree
     ///   - tree2: Second tree
+    ///   - tsed: The trees' TSED score with this calculator's costs, when the caller already has
+    ///     it (a scan does); nil computes it, which costs a full tree edit distance
     /// - Returns: Advanced similarity result with detailed metrics
-    public func calculateAdvancedSimilarity(between tree1: TreeNode, and tree2: TreeNode) -> AdvancedSimilarityResult {
-        // Calculate basic APTED similarity
-        let basicResult = basicCalculator.calculateSimilarity(between: tree1, and: tree2)
+    public func calculateAdvancedSimilarity(between tree1: TreeNode, and tree2: TreeNode, tsed: Double? = nil) -> AdvancedSimilarityResult {
+        let aptedSimilarity = tsed ?? basicCalculator.calculateSimilarity(between: tree1, and: tree2).similarityScore
         
         // Calculate individual metrics
         let structuralSim = calculateJaccardSimilarity(
@@ -91,7 +92,7 @@ public class AdvancedSimilarityMetrics {
             structuralSimilarity: structuralSim,
             labelSimilarity: labelSim,
             depthSimilarity: depthSim,
-            aptedSimilarity: basicResult.similarityScore
+            aptedSimilarity: aptedSimilarity
         )
     }
     
