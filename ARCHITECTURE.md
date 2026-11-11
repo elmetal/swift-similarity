@@ -2,7 +2,7 @@
 
 ## Overview
 
-swift-similarity is a Swift tool for detecting similar code elements (functions, structs, classes, enums) by comparing their syntax trees.
+swift-similarity is a Swift tool for detecting similar code elements (functions, initializers, types, protocols, extensions) by comparing their syntax trees.
 
 The similarity measure is **TSED (Tree Similarity of Edit Distance)** from
 *"Revisiting Code Similarity Evaluation with Abstract Syntax Tree Edit Distance"*
@@ -109,8 +109,9 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - Computes TSED: `max(1 - δ / MaxNodes, 0)`
 - Returns the edit distance, score, threshold decision and node-count metadata
 
-**AdvancedSimilarityMetrics** (library only, not used by the CLI)
-- Weighted combination of a structural Jaccard score, a label Jaccard score, a depth score and the TSED score
+**AdvancedSimilarityMetrics** (reported by `scan --advanced`)
+- A structural Jaccard score, a label Jaccard score, a depth score and their weighted combination,
+  alongside the TSED score (which is not part of the combination and does not select pairs)
 
 ### 5. Optimization Layer (`Sources/swift-similarity/Optimization/`)
 
@@ -152,7 +153,7 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 - `upperBound(count1:count2:)` = `min / max` skips pairs whose member counts already rule them out
 
 **ConformanceIndex**
-- Built by `CodeElementExtractor.extractElementsAndConformances(fromPaths:excluding:)` from every
+- Built by `CodeElementExtractor.extract(fromPaths:excluding:)` from every
   type, extension and protocol in the scanned files (regardless of filters): type name → inherited
   protocols, protocol → requirements (kind, `static`, name), plus a table of common standard
   library protocols
@@ -184,7 +185,23 @@ Pair enumeration and parallelism are handled by `SimilarityScanner`.
 ### 7. Utilities (`Sources/swift-similarity/Utils/`)
 
 **FileReader**
-- Recursively finds `.swift` files in a directory (hidden files are skipped)
+- Recursively finds `.swift` files in directories (hidden files are skipped) and validates the
+  paths given on the command line
+
+**ExcludePattern**
+- Glob patterns for `--exclude` (`*`, `?`, `[...]` within a path component, `**` across components)
+
+**concurrentMap**
+- An order-preserving parallel `map`, used to parse files and prepare trees on every core
+
+### 7b. Configuration (`Sources/swift-similarity/Config/`)
+
+**SimilarityConfig**
+- Parses `similarity.toml` (a small TOML subset) and finds the nearest one in the current directory
+  or its parents; the same type holds the options given on the command line
+
+**ScanSettings**
+- The defaults, and `resolve(commandLine:file:)`: command line over config file over defaults
 
 ### 8. SwiftPM Plugin (`Plugins/SimilarityPlugin/`)
 
