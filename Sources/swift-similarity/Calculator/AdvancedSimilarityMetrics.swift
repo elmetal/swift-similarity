@@ -95,8 +95,6 @@ public class AdvancedSimilarityMetrics {
         )
     }
     
-
-    
     /// Calculates Jaccard similarity coefficient between two arrays of comparable elements.
     /// - Parameters:
     ///   - set1: First array of elements
@@ -123,7 +121,6 @@ public class AdvancedSimilarityMetrics {
         return maxDepth > 0 ? Double(minDepth) / Double(maxDepth) : 1.0
     }
     
-    /// Extracts tree shape signatures for structural comparison.
     /// Collects data from tree nodes using a provided collector function.
     /// - Parameters:
     ///   - tree: The tree to traverse

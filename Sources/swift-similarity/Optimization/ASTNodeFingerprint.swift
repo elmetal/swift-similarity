@@ -7,7 +7,7 @@ import Foundation
 /// `tsedUpperBound(to:)` bounds the TSED score from the label histograms alone, so pairs that
 /// cannot reach the threshold are skipped without computing the tree edit distance.
 public struct ASTNodeFingerprint: Hashable, Sendable {
-    /// Count of each node type in the AST (e.g., "FunctionCallExprSyntax": 5)
+    /// Count of each node type in the AST (e.g., "FunctionCallExpr": 5)
     public let nodeTypeCounts: [String: Int]
     /// Total number of nodes in the tree
     public let totalNodes: Int

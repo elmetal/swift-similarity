@@ -69,7 +69,7 @@ func testUpperBoundRejects() {
 // MARK: - Scanner reports TSED
 
 @Test("Scanner reports the TSED score for every pair above the threshold")
-func testVectorizedEngineReportsTSED() async throws {
+func testScannerReportsTSED() async throws {
     let elements = sources.map { element($0.1, name: $0.0) }
     let threshold = 0.3
     let results = try await SimilarityScanner().findSimilarPairs(in: elements, threshold: threshold)

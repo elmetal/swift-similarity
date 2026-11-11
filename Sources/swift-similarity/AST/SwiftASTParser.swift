@@ -23,4 +23,4 @@ public class SwiftASTParser {
     public static func parseSource(_ source: String) -> SourceFileSyntax {
         return Parser.parse(source: source)
     }
-} 
+}
