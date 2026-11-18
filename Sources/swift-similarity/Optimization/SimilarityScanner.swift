@@ -29,7 +29,8 @@ public struct SimilarityScanner: Sendable {
         public enum Phase: String, Sendable {
             /// Preparing each element's tree (label histogram and edit distance indexes); units are elements
             case fingerprinting
-            /// Comparing pairs; units are tasks (groups of pairs of similar estimated cost)
+            /// Comparing pairs; units are tasks (groups of pairs of similar estimated cost), or
+            /// protocol requirements for `WitnessSimilarityScanner`
             case comparing
         }
 
@@ -451,7 +452,9 @@ public struct SimilarityScanner: Sendable {
         return TaskResult(blocks: blocks, counts: counts)
     }
 
-    private func report(_ phase: Progress.Phase, completed: Int, total: Int, pairsFound: Int, since startTime: Double) {
+    /// Calls the progress handler, if there is one, estimating the remaining time from the rate
+    /// since `startTime`.
+    func report(_ phase: Progress.Phase, completed: Int, total: Int, pairsFound: Int, since startTime: Double) {
         guard let progressHandler else { return }
         let elapsed = ProcessInfo.processInfo.systemUptime - startTime
         let rate = elapsed > 0 ? Double(completed) / elapsed : 0
