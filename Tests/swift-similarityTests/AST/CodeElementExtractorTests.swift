@@ -246,3 +246,23 @@ func testAdditionalElementTypes() throws {
     #expect(initOnly.count == 2)
     #expect(initOnly.allSatisfy { $0.elementType == .initializer })
 }
+
+@Test("Code previews show the declaration's own lines in files with CRLF line endings")
+func testCodePreviewWithCRLF() throws {
+    let source = [
+        "import Foundation",
+        "",
+        "// A comment",
+        "func alpha(a: Int) -> Int {",
+        "    let x = a + 1",
+        "    return x",
+        "}",
+        "",
+    ].joined(separator: "\r\n")
+    let function = try #require(try extractElements(from: source).first { $0.name == "alpha" })
+
+    #expect(function.startLine == 4)
+    #expect(function.endLine == 7)
+    #expect(function.codePreview == "func alpha(a: Int) -> Int {\n    let x = a + 1\n    return x\n}")
+    #expect(CodeElementExtractor.lines(of: "a\r\nb\rc\nd") == ["a", "b", "c", "d"])
+}
